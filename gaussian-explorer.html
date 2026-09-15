@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bivariate Gaussian Explorer</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 480px;
+    margin: 40px auto;
+    padding: 0 16px;
+    color: #0b0b0b;
+    background: #fcfcfb;
+  }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 1.5rem; }
+  input[type="range"] { width: 100%; accent-color: #2a78d6; }
+</style>
+</head>
+<body>
+<h1>Interactive bivariate Gaussian</h1>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin-bottom: 1rem;">
+  <div>
+    <div style="display:flex; justify-content:space-between; font-size:13px; color:#52514e;"><span>Mean x (μ₁)</span><span id="mx-out">0</span></div>
+    <input type="range" id="mx" min="-3" max="3" step="0.1" value="0">
+  </div>
+  <div>
+    <div style="display:flex; justify-content:space-between; font-size:13px; color:#52514e;"><span>Mean y (μ₂)</span><span id="my-out">0</span></div>
+    <input type="range" id="my" min="-3" max="3" step="0.1" value="0">
+  </div>
+  <div>
+    <div style="display:flex; justify-content:space-between; font-size:13px; color:#52514e;"><span>Std dev x (σ₁)</span><span id="sx-out">1</span></div>
+    <input type="range" id="sx" min="0.3" max="2.5" step="0.1" value="1">
+  </div>
+  <div>
+    <div style="display:flex; justify-content:space-between; font-size:13px; color:#52514e;"><span>Std dev y (σ₂)</span><span id="sy-out">1</span></div>
+    <input type="range" id="sy" min="0.3" max="2.5" step="0.1" value="1">
+  </div>
+  <div style="grid-column: 1 / -1;">
+    <div style="display:flex; justify-content:space-between; font-size:13px; color:#52514e;"><span>Correlation (ρ)</span><span id="rho-out">0</span></div>
+    <input type="range" id="rho" min="-0.95" max="0.95" step="0.05" value="0">
+  </div>
+</div>
+
+<div style="position:relative; width:100%; aspect-ratio:1/1; max-width:420px; margin:0 auto 1.25rem;">
+  <canvas id="heat" width="300" height="300" style="width:100%; height:100%; border-radius:8px; display:block;"></canvas>
+  <svg id="overlay" viewBox="0 0 300 300" style="position:absolute; top:0; left:0; width:100%; height:100%;"></svg>
+</div>
+
+<div style="display:grid; grid-template-columns: repeat(3,1fr); gap:12px;">
+  <div style="background:#f1efe8; border-radius:8px; padding:0.75rem 1rem;">
+    <p style="font-size:12px; color:#898781; margin:0 0 4px;">Covariance matrix</p>
+    <p style="font-size:13px; font-family:monospace; margin:0;" id="cov-out">[1, 0; 0, 1]</p>
+  </div>
+  <div style="background:#f1efe8; border-radius:8px; padding:0.75rem 1rem;">
+    <p style="font-size:12px; color:#898781; margin:0 0 4px;">Determinant |Σ|</p>
+    <p style="font-size:20px; font-weight:500; margin:0;" id="det-out">1</p>
+  </div>
+  <div style="background:#f1efe8; border-radius:8px; padding:0.75rem 1rem;">
+    <p style="font-size:12px; color:#898781; margin:0 0 4px;">Peak density</p>
+    <p style="font-size:20px; font-weight:500; margin:0;" id="peak-out">0.16</p>
+  </div>
+</div>
+
+<script>
+const ids = ['mx','my','sx','sy','rho'];
+const els = {}; ids.forEach(id => els[id] = document.getElementById(id));
+const canvas = document.getElementById('heat');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const N = 150;
+const range = 6;
+function worldToPix(x, y) {
+  return [ (x + range/2) / range * 300, 300 - (y + range/2) / range * 300 ];
+}
+
+function render() {
+  const mx = parseFloat(els.mx.value), my = parseFloat(els.my.value);
+  const sx = parseFloat(els.sx.value), sy = parseFloat(els.sy.value);
+  const rho = parseFloat(els.rho.value);
+  document.getElementById('mx-out').textContent = mx.toFixed(1);
+  document.getElementById('my-out').textContent = my.toFixed(1);
+  document.getElementById('sx-out').textContent = sx.toFixed(1);
+  document.getElementById('sy-out').textContent = sy.toFixed(1);
+  document.getElementById('rho-out').textContent = rho.toFixed(2);
+
+  const s11 = sx*sx, s22 = sy*sy, s12 = rho*sx*sy;
+  const det = s11*s22 - s12*s12;
+  document.getElementById('cov-out').textContent =
+    '[' + s11.toFixed(2) + ', ' + s12.toFixed(2) + '; ' + s12.toFixed(2) + ', ' + s22.toFixed(2) + ']';
+  document.getElementById('det-out').textContent = det.toFixed(2);
+
+  const inv11 = s22/det, inv22 = s11/det, inv12 = -s12/det;
+  const norm = 1/(2*Math.PI*Math.sqrt(det));
+  document.getElementById('peak-out').textContent = norm.toFixed(3);
+
+  const img = ctx.createImageData(N, N);
+  let maxD = 0;
+  const dens = new Float64Array(N*N);
+  for (let j = 0; j < N; j++) {
+    const y = range/2 - j/(N-1)*range;
+    for (let i = 0; i < N; i++) {
+      const x = -range/2 + i/(N-1)*range;
+      const dx = x - mx, dy = y - my;
+      const q = inv11*dx*dx + 2*inv12*dx*dy + inv22*dy*dy;
+      const d = norm * Math.exp(-0.5*q);
+      dens[j*N+i] = d;
+      if (d > maxD) maxD = d;
+    }
+  }
+  for (let k = 0; k < N*N; k++) {
+    const t = Math.min(1, dens[k] / maxD);
+    const r = Math.round(230 - t*195);
+    const g = Math.round(241 - t*160);
+    const b = Math.round(251 - t*95);
+    img.data[k*4] = r; img.data[k*4+1] = g; img.data[k*4+2] = b; img.data[k*4+3] = 255;
+  }
+  const tmp = document.createElement('canvas');
+  tmp.width = N; tmp.height = N;
+  tmp.getContext('2d').putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.clearRect(0,0,300,300);
+  ctx.drawImage(tmp, 0, 0, 300, 300);
+
+  const tr = s11+s22, dt = det;
+  const eig1 = tr/2 + Math.sqrt(Math.max(0,(tr/2)*(tr/2) - dt));
+  const eig2 = tr/2 - Math.sqrt(Math.max(0,(tr/2)*(tr/2) - dt));
+  let angle;
+  if (s12 === 0) { angle = s11 >= s22 ? 0 : Math.PI/2; }
+  else { angle = Math.atan2(eig1 - s11, s12); }
+  let svgHtml = '';
+  [1, 2].forEach((k, idx) => {
+    const a = k*Math.sqrt(Math.max(eig1,0));
+    const b = k*Math.sqrt(Math.max(eig2,0));
+    const [cx, cy] = worldToPix(mx, my);
+    const rx = a/range*300, ry = b/range*300;
+    const rot = -angle * 180/Math.PI;
+    svgHtml += '<ellipse cx="'+cx+'" cy="'+cy+'" rx="'+rx+'" ry="'+ry+'" transform="rotate('+rot+' '+cx+' '+cy+')" fill="none" stroke="#0C447C" stroke-width="'+(idx===0?2:1)+'" stroke-opacity="'+(idx===0?0.9:0.5)+'"/>';
+  });
+  const [cx, cy] = worldToPix(mx, my);
+  svgHtml += '<circle cx="'+cx+'" cy="'+cy+'" r="3" fill="#0C447C"/>';
+  overlay.innerHTML = svgHtml;
+}
+
+ids.forEach(id => els[id].addEventListener('input', render));
+render();
+</script>
+</body>
+</html>
