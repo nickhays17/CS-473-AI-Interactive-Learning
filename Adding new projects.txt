@@ -1,0 +1,1 @@
+When you add a new project later: create another folder (project2/), put its index.html inside, then add one more <li><a href="project2/">...</a></li> line to this landing page and commit again.
