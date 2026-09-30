@@ -1,1 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ROC curve threshold explorer</title>
+<style>
+:root{
+  --bg:#f6f7f9;--card:#ffffff;--ink:#14181f;--ink2:#4a5261;--ink3:#8a93a3;
+  --line:#dfe3ea;--pos:#0f9d74;--neg:#e0572b;--roc:#2a6fd6;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#10131a;--card:#181c25;--ink:#eef0f4;--ink2:#b5bcc9;--ink3:#7d8696;--line:#2b313d;--pos:#2cc495;--neg:#f07a4f;--roc:#5b9bf0}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6}
+main{max-width:760px;margin:0 auto;padding:32px 20px 48px}
+h1{font-size:26px;font-weight:600;margin:0 0 6px}
+.sub{color:var(--ink2);margin:0 0 24px;max-width:60ch}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+.ctl{display:flex;align-items:center;gap:12px;margin:0 0 12px}
+.ctl label{font-size:14px;color:var(--ink2);min-width:100px}
+.ctl .v{font-size:14px;font-weight:600;min-width:64px;text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{flex:1;accent-color:var(--roc);height:24px}
+.pre{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px}
+.pre span{font-size:13px;color:var(--ink2)}
+button{font:inherit;font-size:14px;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;padding:5px 14px;cursor:pointer}
+button:hover{background:var(--bg)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--roc);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px;margin:20px 0}
+svg{display:block;width:100%;height:auto}
+.ax{font-size:11px;fill:var(--ink3)}
+.lbl{font-size:12px;fill:var(--ink2)}
+.m{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.m div{background:var(--bg);border-radius:8px;padding:10px 12px}
+.m p{margin:0}
+.k{font-size:12px;color:var(--ink2)}
+.n{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.note{font-size:13px;color:var(--ink3);margin:20px 0 0}
+</style>
+</head>
+<body>
+<main>
+  <h1>ROC curve threshold explorer</h1>
+  <p class="sub">Move the threshold to see which point on the ROC curve it picks, which predictions flip, and how the metrics change.</p>
 
+  <div class="panel">
+    <div class="ctl"><label for="thr">Threshold</label><input type="range" id="thr" min="0" max="1" step="0.01" value="0.5"><span class="v" id="thrv">0.50</span></div>
+    <div class="ctl"><label for="sep">Model quality</label><input type="range" id="sep" min="0.05" max="0.7" step="0.01" value="0.3"><span class="v" id="sepv">AUC 0.92</span></div>
+    <div class="pre"><span>Try:</span>
+      <button data-t="0.1">0.1</button><button data-t="0.3">0.3</button><button data-t="0.5">0.5</button><button data-t="0.7">0.7</button><button data-t="0.9">0.9</button>
+    </div>
+
+    <div class="grid">
+      <svg id="roc" viewBox="0 0 320 320" role="img" aria-label="ROC curve with current operating point"></svg>
+      <svg id="dist" viewBox="0 0 320 320" role="img" aria-label="Score distributions for negative and positive classes with threshold line"></svg>
+    </div>
+
+    <div class="m">
+      <div><p class="k">True positive rate</p><p class="n" id="mTPR">-</p></div>
+      <div><p class="k">False positive rate</p><p class="n" id="mFPR">-</p></div>
+      <div><p class="k">Precision</p><p class="n" id="mPRE">-</p></div>
+      <div><p class="k">Accuracy</p><p class="n" id="mACC">-</p></div>
+    </div>
+  </div>
+  <p class="note">Synthetic data: two normal score distributions (sd 0.15) with equal class sizes. Precision and accuracy assume a 50/50 class balance.</p>
+</main>
+
+<script>
+const S=0.15,NS='http://www.w3.org/2000/svg';
+const $=id=>document.getElementById(id);
+function erf(x){const s=x<0?-1:1;x=Math.abs(x);const t=1/(1+0.3275911*x);const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);return s*y}
+const cdf=(x,m)=>0.5*(1+erf((x-m)/(S*Math.SQRT2)));
+const pdf=(x,m)=>Math.exp(-0.5*((x-m)/S)**2)/(S*Math.sqrt(2*Math.PI));
+const L=40,W=260,T=20,H=260;
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent.appendChild(e);return e}
+function txt(parent,x,y,s,cls,anchor){const e=el('text',{x,y,class:cls,'text-anchor':anchor||'start'},parent);e.textContent=s;return e}
+const gs='stroke:var(--line);stroke-width:1;fill:none';
+function draw(){
+  const t=+$('thr').value,d=+$('sep').value;
+  const mn=0.5-d/2,mp=0.5+d/2;
+  const tpr=1-cdf(t,mp),fpr=1-cdf(t,mn);
+  const auc=0.5*(1+erf(d/(S*Math.SQRT2)/Math.SQRT2));
+  $('thrv').textContent=t.toFixed(2);
+  $('sepv').textContent='AUC '+auc.toFixed(2);
+  $('mTPR').textContent=(tpr*100).toFixed(1)+'%';
+  $('mFPR').textContent=(fpr*100).toFixed(1)+'%';
+  $('mPRE').textContent=(tpr+fpr>0.0001?tpr/(tpr+fpr)*100:0).toFixed(1)+'%';
+  $('mACC').textContent=(((tpr+(1-fpr))/2)*100).toFixed(1)+'%';
+
+  const r=$('roc');r.innerHTML='';
+  for(let i=0;i<=4;i++){const v=i/4;
+    el('line',{x1:L+v*W,y1:T,x2:L+v*W,y2:T+H,style:gs},r);
+    el('line',{x1:L,y1:T+H-v*H,x2:L+W,y2:T+H-v*H,style:gs},r);
+    txt(r,L+v*W,T+H+14,v.toFixed(2).replace(/0$/,''),'ax','middle');
+    txt(r,L-6,T+H-v*H+4,v.toFixed(2).replace(/0$/,''),'ax','end');}
+  el('line',{x1:L,y1:T+H,x2:L+W,y2:T,style:'stroke:var(--ink3);stroke-width:1;stroke-dasharray:4 4'},r);
+  let p='';
+  for(let s=1.2;s>=-0.2;s-=0.01){const f=1-cdf(s,mn),q=1-cdf(s,mp);p+=(p?'L':'M')+(L+f*W).toFixed(1)+' '+(T+H-q*H).toFixed(1)}
+  el('path',{d:p+'L'+(L+W)+' '+T,style:'stroke:var(--roc);stroke-width:2;fill:var(--roc);fill-opacity:0.1;stroke-linejoin:round'},r);
+  el('line',{x1:L+fpr*W,y1:T+H,x2:L+fpr*W,y2:T+H-tpr*H,style:'stroke:var(--neg);stroke-width:1;stroke-dasharray:3 3'},r);
+  el('line',{x1:L,y1:T+H-tpr*H,x2:L+fpr*W,y2:T+H-tpr*H,style:'stroke:var(--neg);stroke-width:1;stroke-dasharray:3 3'},r);
+  el('circle',{cx:L+fpr*W,cy:T+H-tpr*H,r:6,style:'fill:var(--neg);stroke:var(--card);stroke-width:2'},r);
+  txt(r,L+W/2,T+H+30,'False positive rate','lbl','middle');
+  const yl=txt(r,0,0,'True positive rate','lbl','middle');yl.setAttribute('transform','translate(11 '+(T+H/2)+') rotate(-90)');
+  txt(r,L+W-6,T+H-8,'Random guess','ax','end');
+
+  const c=$('dist');c.innerHTML='';
+  const ymax=2.9,X=v=>L+v*W,Y=v=>T+H-v/ymax*H;
+  el('line',{x1:L,y1:T+H,x2:L+W,y2:T+H,style:'stroke:var(--ink3);stroke-width:1'},c);
+  for(let i=0;i<=4;i++){const v=i/4;txt(c,X(v),T+H+14,v.toFixed(2).replace(/0$/,''),'ax','middle')}
+  function area(m,col){
+    let a='M'+X(t)+' '+Y(0);
+    for(let s=t;s<=1.0001;s+=0.01)a+='L'+X(Math.min(s,1)).toFixed(1)+' '+Y(pdf(s,m)).toFixed(1);
+    a+='L'+X(1)+' '+Y(0)+'Z';
+    el('path',{d:a,style:'fill:'+col+';fill-opacity:0.35;stroke:none'},c)}
+  area(mn,'var(--neg)');area(mp,'var(--pos)');
+  function line(m,col){let q='';for(let s=0;s<=1.0001;s+=0.01)q+=(q?'L':'M')+X(Math.min(s,1)).toFixed(1)+' '+Y(pdf(s,m)).toFixed(1);
+    el('path',{d:q,style:'fill:none;stroke:'+col+';stroke-width:2;stroke-linejoin:round'},c)}
+  line(mn,'var(--neg)');line(mp,'var(--pos)');
+  el('line',{x1:X(t),y1:T,x2:X(t),y2:T+H,style:'stroke:var(--ink);stroke-width:1.5'},c);
+  txt(c,X(t)+(t>0.8?-4:4),T+10,'threshold '+t.toFixed(2),'lbl',t>0.8?'end':'start');
+  txt(c,L+W/2,T+H+30,'Model score','lbl','middle');
+  el('rect',{x:L,y:T+H+38,width:10,height:10,rx:2,style:'fill:var(--neg)'},c);txt(c,L+15,T+H+47,'Negatives','ax');
+  el('rect',{x:L+88,y:T+H+38,width:10,height:10,rx:2,style:'fill:var(--pos)'},c);txt(c,L+103,T+H+47,'Positives','ax');
+  txt(c,L+W,T+H+47,'Shaded = predicted positive','ax','end');
+}
+$('thr').addEventListener('input',draw);
+$('sep').addEventListener('input',draw);
+document.querySelectorAll('button[data-t]').forEach(b=>b.addEventListener('click',()=>{$('thr').value=b.dataset.t;draw()}));
+draw();
+</script>
+</body>
+</html>
