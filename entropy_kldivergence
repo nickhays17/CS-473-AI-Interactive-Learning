@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Entropy and KL divergence, hands on</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,600;1,400&family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f5f8;--ink:#14213d;--mut:#5b6578;--card:#fff;--line:#d7dce5;--p:#0f766e;--q:#be2c6b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1420;--ink:#e6eaf2;--mut:#98a3b8;--card:#162033;--line:#27324a;--p:#3cc7b5;--q:#ff7aa8}}
+:root[data-theme="dark"]{--bg:#0e1420;--ink:#e6eaf2;--mut:#98a3b8;--card:#162033;--line:#27324a;--p:#3cc7b5;--q:#ff7aa8}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.6 Newsreader,Georgia,serif}
+main{max-width:860px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:clamp(2rem,6vw,3.2rem);line-height:1.1;margin:.2em 0 .3em;font-weight:600}
+h2{font-size:1.7rem;margin:0 0 .3em;font-weight:600}
+p{max-width:68ch}
+.ui,button,table,.row,label{font-family:"Instrument Sans",system-ui,sans-serif;font-size:15px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:24px;margin:28px 0}
+.f{font-family:Georgia,serif;font-style:italic;background:var(--bg);padding:10px 14px;border-radius:6px;display:block;max-width:fit-content;margin:.6em 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+.row{display:grid;grid-template-columns:62px 1fr 42px;align-items:center;gap:8px;margin:6px 0}
+.row b{text-align:right;font-weight:600}
+input[type=range]{width:100%}
+.pc input{accent-color:var(--p)}.qc input{accent-color:var(--q)}
+.pc h3{color:var(--p)}.qc h3{color:var(--q)}
+h3{margin:0 0 6px;font-size:1rem;font-family:"Instrument Sans",system-ui,sans-serif}
+button{background:none;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer;margin:2px 4px 2px 0}
+button:hover{border-color:var(--ink)}button:focus-visible,input:focus-visible{outline:2px solid var(--p);outline-offset:2px}
+.big{font:600 2.4rem/1 Newsreader,Georgia,serif}
+.meter{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;margin:8px 0}
+.meter i{display:block;height:100%;background:var(--p);width:0}
+table{border-collapse:collapse;width:100%;margin-top:10px}
+td,th{text-align:left;padding:5px 8px 5px 0;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:400}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin:16px 0}
+.stats small{display:block;color:var(--mut);font-family:"Instrument Sans",system-ui,sans-serif;font-size:13px}
+.pairs{display:flex;gap:18px;align-items:flex-end;height:90px;margin:12px 0;font-family:"Instrument Sans",system-ui,sans-serif;font-size:12px}
+.pairs div{display:flex;flex-direction:column;align-items:center;gap:3px}
+.pairs span{display:flex;align-items:flex-end;gap:3px;height:70px}
+.pairs i{width:14px;display:block;border-radius:2px 2px 0 0}
+canvas{width:100%;height:220px;display:block;margin-top:8px}
+li{margin:.4em 0;max-width:68ch}
+.note{color:var(--mut);font-size:.95rem}
+</style></head><body><main>
+<h1>Entropy and KL divergence, hands on</h1>
+<p>Both ideas answer one question: <em>how surprised should I be?</em> Entropy measures the surprise built into a distribution. KL divergence measures the extra surprise you pay for using the wrong distribution. Drag the sliders below to build intuition.</p>
+
+<section>
+<h2>1. Entropy: average surprise</h2>
+<p>An event with probability <i>p</i> has surprise −log₂ <i>p</i> bits. Rare events are very surprising; certain ones carry none. Entropy is the average surprise under the distribution itself.</p>
+<span class="f">H(P) = −Σ p(x) log₂ p(x)</span>
+<div class="grid">
+ <div class="pc"><h3>Tomorrow's weather, P</h3><div id="e-sl"></div>
+  <button data-e="25,25,25,25">Uniform</button><button data-e="70,20,8,2">Skewed</button><button data-e="100,0,0,0">Certain</button></div>
+ <div><div class="ui">Entropy</div><div class="big"><span id="e-h">0</span> bits</div>
+  <div class="meter"><i id="e-bar"></i></div>
+  <div class="note ui">Maximum for 4 outcomes is 2 bits (uniform). Perplexity, the effective number of equally likely outcomes: <b id="e-perp"></b></div></div>
+</div>
+<table><thead><tr><th>Outcome</th><th>p</th><th>Surprise −log₂ p</th><th>p × surprise</th></tr></thead><tbody id="e-rows"></tbody></table>
+<p class="note">The last column sums to the entropy. Make one outcome nearly certain and entropy collapses toward 0: a model that is already sure has nothing left to learn.</p>
+</section>
+
+<section>
+<h2>2. KL divergence: the price of a wrong model</h2>
+<p>Let P be reality and Q be your model. If you encode events from P using a code built for Q, you pay cross-entropy H(P,Q) bits on average. The part beyond the unavoidable H(P) is the KL divergence.</p>
+<span class="f">KL(P‖Q) = Σ p log₂(p/q) = H(P,Q) − H(P)</span>
+<div class="grid">
+ <div class="pc"><h3>Reality, P</h3><div id="k-p"></div></div>
+ <div class="qc"><h3>Your model, Q</h3><div id="k-q"></div>
+  <button id="k-match">Set Q = P</button><button id="k-zero">Q says rain is impossible</button></div>
+</div>
+<div class="pairs" id="k-pairs"></div>
+<div class="stats">
+ <div><small>H(P) irreducible</small><span class="big" id="k-h"></span></div>
+ <div><small>H(P,Q) cross-entropy</small><span class="big" id="k-ce"></span></div>
+ <div><small>KL(P‖Q)</small><span class="big" id="k-f" style="color:var(--p)"></span></div>
+ <div><small>KL(Q‖P) reversed</small><span class="big" id="k-r" style="color:var(--q)"></span></div>
+</div>
+<table><thead><tr><th>Outcome</th><th>p</th><th>q</th><th>p·log₂(p/q)</th></tr></thead><tbody id="k-rows"></tbody></table>
+<p class="note">Three things to try. KL is zero only when Q = P. The two directions give different numbers, so it is not a distance. And if Q gives zero probability to something P can produce, KL(P‖Q) is infinite: a model that rules out what actually happens is punished without limit.</p>
+</section>
+
+<section>
+<h2>3. Direction matters: forward vs reverse KL</h2>
+<p>Here P is two-peaked (teal). Fit a single Gaussian Q (magenta) by choosing its mean and spread, or let the page find the best fit under each direction.</p>
+<canvas id="g" role="img" aria-label="Bimodal target distribution and Gaussian fit"></canvas>
+<div class="row" style="grid-template-columns:70px 1fr 50px"><span>mean</span><input id="g-m" type="range" min="-4" max="4" step="0.05" value="0"><b id="g-mv"></b></div>
+<div class="row" style="grid-template-columns:70px 1fr 50px"><span>spread</span><input id="g-s" type="range" min="0.3" max="4" step="0.05" value="1"><b id="g-sv"></b></div>
+<button id="g-f">Minimize KL(P‖Q)</button><button id="g-r">Minimize KL(Q‖P)</button>
+<div class="stats"><div><small>KL(P‖Q), nats</small><span class="big" id="g-kf" style="color:var(--p)"></span></div><div><small>KL(Q‖P), nats</small><span class="big" id="g-kr" style="color:var(--q)"></span></div></div>
+<p><b>Forward KL(P‖Q)</b> punishes Q for missing any place P has mass, so Q stretches across both peaks (mode covering). <b>Reverse KL(Q‖P)</b> punishes Q for putting mass where P has none, so Q locks onto a single peak (mode seeking).</p>
+</section>
+
+<section>
+<h2>Where this shows up in machine learning</h2>
+<ul>
+<li><b>Cross-entropy loss.</b> Training a classifier minimizes H(P,Q) = H(P) + KL(P‖Q). The data's H(P) is fixed, so minimizing cross-entropy is minimizing KL. With one-hot labels H(P) = 0 and the two are identical.</li>
+<li><b>Maximum likelihood.</b> Maximizing the likelihood of data is equivalent to minimizing KL(P_data‖Q_model), the forward direction in section 3.</li>
+<li><b>Language models.</b> Perplexity is 2 raised to the cross-entropy: the effective number of tokens the model is choosing between.</li>
+<li><b>VAEs.</b> The loss includes KL(q(z|x)‖p(z)), pulling the encoder toward the prior. Variational inference in general uses the reverse direction.</li>
+<li><b>RLHF and distillation.</b> A KL penalty keeps a tuned policy close to its reference model, and distillation matches a student to a teacher's output distribution.</li>
+<li><b>Decision trees.</b> Information gain is the drop in entropy after a split.</li>
+</ul>
+</section>
+</main>
+<script>
+const $=s=>document.querySelector(s),L=Math.log2,names=['Sunny','Cloudy','Rain','Snow'];
+const norm=w=>{const s=w.reduce((a,b)=>a+b,0);return s?w.map(x=>x/s):w.map(()=>.25)};
+function dist(el,init,cb){
+ const w=init.slice(),rows=[];
+ names.forEach((n,i)=>{const r=document.createElement('div');r.className='row';
+  r.innerHTML=`<span>${n}</span><input type="range" min="0" max="100" value="${w[i]}" aria-label="${n}"><b></b>`;
+  r.querySelector('input').oninput=e=>{w[i]=+e.target.value;cb()};el.appendChild(r);rows.push(r)});
+ return{get:()=>norm(w),set(v){v.forEach((x,i)=>{w[i]=x;rows[i].querySelector('input').value=x});cb()},
+  show(){const p=norm(w);rows.forEach((r,i)=>r.querySelector('b').textContent=Math.round(p[i]*100)+'%')}};
+}
+const f2=x=>isFinite(x)?x.toFixed(2):'∞',f3=x=>x.toFixed(3);
+// Section 1
+const E=dist($('#e-sl'),[40,30,20,10],renderE);
+function renderE(){E.show();const p=E.get();let H=0;p.forEach(x=>{if(x>0)H-=x*L(x)});
+ $('#e-h').textContent=f3(H);$('#e-bar').style.width=H/2*100+'%';$('#e-perp').textContent=Math.pow(2,H).toFixed(2);
+ $('#e-rows').innerHTML=p.map((x,i)=>`<tr><td>${names[i]}</td><td>${Math.round(x*100)}%</td><td>${x>0?f2(-L(x))+' bits':'∞'}</td><td>${x>0?f2(-x*L(x)):'0.00'}</td></tr>`).join('')}
+document.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>E.set(b.dataset.e.split(',').map(Number)));
+renderE();
+// Section 2
+const P=dist($('#k-p'),[40,30,20,10],renderK),Q=dist($('#k-q'),[25,25,25,25],renderK);
+function renderK(){if(!window.P||!window.Q)return;P.show();Q.show();const p=P.get(),q=Q.get();
+ let H=0,CE=0,R=0,fi=false,ri=false;
+ p.forEach((x,i)=>{if(x>0){H-=x*L(x);q[i]>0?CE-=x*L(q[i]):fi=true}if(q[i]>0){p[i]>0?R+=q[i]*L(q[i]/p[i]):ri=true}});
+ $('#k-h').textContent=f3(H);$('#k-ce').textContent=fi?'∞':f3(CE);
+ $('#k-f').textContent=fi?'∞':f3(CE-H);$('#k-r').textContent=ri?'∞':f3(R);
+ $('#k-pairs').innerHTML=p.map((x,i)=>`<div><span><i style="height:${x*70}px;background:var(--p)"></i><i style="height:${q[i]*70}px;background:var(--q)"></i></span>${names[i]}</div>`).join('');
+ $('#k-rows').innerHTML=p.map((x,i)=>`<tr><td>${names[i]}</td><td>${Math.round(x*100)}%</td><td>${Math.round(q[i]*100)}%</td><td>${x===0?'0.00':q[i]===0?'∞':f2(x*L(x/q[i]))}</td></tr>`).join('')}
+window.P=P;window.Q=Q;renderK();
+$('#k-match').onclick=()=>Q.set(P.get().map(x=>Math.round(x*100)));
+$('#k-zero').onclick=()=>Q.set([40,40,0,20]);
+// Section 3
+const cv=$('#g'),ctx=cv.getContext('2d'),dx=.04,xs=[];for(let x=-8;x<=8;x+=dx)xs.push(x);
+const N=(x,m,s)=>Math.exp(-.5*((x-m)/s)**2)/(s*2.5066282746);
+const pP=xs.map(x=>.5*N(x,-2,.7)+.5*N(x,2,.7)),M=$('#g-m'),S=$('#g-s');
+function kls(m,s){let f=0,r=0;for(let i=0;i<xs.length;i++){const p=Math.max(pP[i],1e-300),q=Math.max(N(xs[i],m,s),1e-300);
+ f+=pP[i]*Math.log(p/q)*dx;r+=q*Math.log(q/p)*dx}return[f,r]}
+function renderG(){const m=+M.value,s=+S.value,[f,r]=kls(m,s);
+ $('#g-mv').textContent=m.toFixed(2);$('#g-sv').textContent=s.toFixed(2);
+ $('#g-kf').textContent=f.toFixed(3);$('#g-kr').textContent=r.toFixed(3);
+ const d=devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*d;cv.height=h*d;ctx.setTransform(d,0,0,d,0,0);
+ const cs=getComputedStyle(document.documentElement),cp=cs.getPropertyValue('--p'),cq=cs.getPropertyValue('--q'),cl=cs.getPropertyValue('--line');
+ const qs=xs.map(x=>N(x,m,s)),ymax=Math.max(...pP,...qs)*1.1,X=x=>(x+8)/16*w,Y=y=>h-14-y/ymax*(h-24);
+ ctx.clearRect(0,0,w,h);ctx.strokeStyle=cl;ctx.beginPath();ctx.moveTo(0,h-14);ctx.lineTo(w,h-14);ctx.stroke();
+ ctx.beginPath();ctx.moveTo(X(-8),Y(0));xs.forEach((x,i)=>ctx.lineTo(X(x),Y(pP[i])));ctx.lineTo(X(8),Y(0));ctx.fillStyle=cp;ctx.globalAlpha=.3;ctx.fill();ctx.globalAlpha=1;ctx.strokeStyle=cp;ctx.lineWidth=2;ctx.stroke();
+ ctx.beginPath();xs.forEach((x,i)=>i?ctx.lineTo(X(x),Y(qs[i])):ctx.moveTo(X(x),Y(qs[i])));ctx.strokeStyle=cq;ctx.stroke()}
+function fit(rev){let b=[1e9,0,1];for(let m=-4;m<=4.001;m+=.1)for(let s=.3;s<=4.001;s+=.05){const k=kls(m,s)[rev];if(k<b[0])b=[k,m,s]}
+ M.value=b[1].toFixed(2);S.value=b[2].toFixed(2);renderG()}
+M.oninput=S.oninput=renderG;$('#g-f').onclick=()=>fit(0);$('#g-r').onclick=()=>fit(1);
+addEventListener('resize',renderG);matchMedia('(prefers-color-scheme:dark)').addEventListener('change',renderG);
+renderG();
+</script></body></html>
