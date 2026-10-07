@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mutual information explorer</title>
+<style>
+:root{--bg:#faf9f6;--card:#fff;--ink:#1d2433;--sub:#5b6475;--line:#d9dce3;--acc:#2f5fd0;--accbg:#dfe8fb;--acctx:#1b3a85;--mute:#eef0f4;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171d;--card:#1c2029;--ink:#e8eaf0;--sub:#9aa3b5;--line:#343a47;--acc:#7ea3f5;--accbg:#24365e;--acctx:#c9d9fb;--mute:#262b36}}
+:root[data-theme="dark"]{--bg:#14171d;--card:#1c2029;--ink:#e8eaf0;--sub:#9aa3b5;--line:#343a47;--acc:#7ea3f5;--accbg:#24365e;--acctx:#c9d9fb;--mute:#262b36}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Georgia,"Times New Roman",serif}
+main{max-width:720px;margin:0 auto;padding:24px 18px 48px}
+h1{font-size:28px;line-height:1.2;margin:0 0 6px}
+h2{font-size:18px;margin:28px 0 8px}
+p{margin:0 0 12px}
+.sub{color:var(--sub)}
+.ui{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+.presets{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+button{font:14px system-ui,sans-serif;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+button:hover{border-color:var(--acc)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.row{display:grid;grid-template-columns:minmax(120px,190px) 1fr 44px;gap:12px;align-items:center;margin:0 0 10px;font:14px system-ui,sans-serif}
+.row label{color:var(--sub)}
+.row output{text-align:right;font-weight:600}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.heads{display:flex;font:12px system-ui,sans-serif;color:var(--sub);margin-bottom:4px}
+.heads div{text-align:center;white-space:nowrap;overflow:hidden}
+#mosaic{display:flex;height:180px;border:1px solid var(--line)}
+#mosaic>div{display:flex;flex-direction:column}
+.cell{display:flex;align-items:center;justify-content:center;font:12px system-ui,sans-serif;overflow:hidden;border:1px solid var(--line);margin:-0.5px}
+.cap{font:12px system-ui,sans-serif;color:var(--sub);margin:6px 0 0}
+.bar{display:flex;height:34px;background:var(--mute);border-radius:8px;overflow:hidden;margin:6px 0}
+.bar .cell{border:none;margin:0;white-space:nowrap}
+.scale{display:flex;justify-content:space-between;font:11px system-ui,sans-serif;color:var(--sub)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:16px;font-family:system-ui,sans-serif}
+.stat{background:var(--mute);border-radius:8px;padding:12px}
+.stat.hi{background:var(--accbg);color:var(--acctx)}
+.stat small{display:block;font-size:13px;opacity:.85}
+.stat b{font-size:24px;font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<h1>Mutual information explorer</h1>
+<p class="sub">How much does knowing a feature <i>X</i> reduce your uncertainty about a label <i>Y</i>? Drag the sliders and watch the bits move.</p>
+
+<div class="presets">
+<button onclick="setP(0.5,0.5,0.5)">Useless feature</button>
+<button onclick="setP(0.5,0.9,0.1)">Strong feature</button>
+<button onclick="setP(0.5,1,0)">Perfect feature</button>
+<button onclick="setP(0.9,0.6,0.4)">Imbalanced classes</button>
+</div>
+
+<div class="card">
+<div class="row"><label for="a">P(Y=1), class balance</label><input type="range" id="a" min="0.02" max="0.98" step="0.01" value="0.5"><output id="av"></output></div>
+<div class="row"><label for="b">P(X=1 | Y=1)</label><input type="range" id="b" min="0" max="1" step="0.01" value="0.9"><output id="bv"></output></div>
+<div class="row"><label for="c">P(X=1 | Y=0)</label><input type="range" id="c" min="0" max="1" step="0.01" value="0.1"><output id="cv"></output></div>
+</div>
+
+<h2>The joint distribution</h2>
+<div class="heads"><div id="h0"></div><div id="h1"></div></div>
+<div id="mosaic" role="img" aria-label="Mosaic plot of the joint distribution of X and Y"></div>
+<p class="cap">Column width is P(Y). Cell height inside a column is P(X | Y). If the rows line up across both columns, X and Y are independent.</p>
+
+<h2>Where the information comes from</h2>
+<p class="sub">The full bar is one bit, the most uncertainty a binary label can have. Blue is what X explains.</p>
+<div class="bar"><div id="bi" class="cell" style="background:var(--accbg);color:var(--acctx)"></div><div id="br" class="cell" style="background:var(--mute);color:var(--sub)"></div></div>
+<div class="scale"><span>0 bits</span><span>1 bit</span></div>
+
+<div class="stats">
+<div class="stat"><small>H(Y)</small><b id="hy"></b></div>
+<div class="stat"><small>H(Y | X)</small><b id="hyx"></b></div>
+<div class="stat hi"><small>I(X; Y)</small><b id="mi"></b></div>
+<div class="stat"><small>Share of H(Y)</small><b id="pc"></b></div>
+</div>
+
+<h2>The idea in one line</h2>
+<p>I(X;Y) = H(Y) − H(Y|X), which also equals the KL divergence between the joint p(x,y) and the product p(x)p(y). It is zero exactly when X and Y are independent, and unlike correlation it also catches nonlinear dependence. In ML it drives feature selection, information gain in decision trees, contrastive objectives such as InfoNCE, and clustering metrics like normalized mutual information.</p>
+</main>
+<script>
+var $=function(i){return document.getElementById(i)};
+function H(ps){var s=0;ps.forEach(function(p){if(p>0)s-=p*Math.log2(p)});return s}
+function setP(a,b,c){$('a').value=a;$('b').value=b;$('c').value=c;draw()}
+function draw(){
+var a=+$('a').value,b=+$('b').value,c=+$('c').value;
+$('av').textContent=a.toFixed(2);$('bv').textContent=b.toFixed(2);$('cv').textContent=c.toFixed(2);
+var py=[1-a,a],px1=[c,b],j=[[0,0],[0,0]];
+for(var y=0;y<2;y++){j[1][y]=py[y]*px1[y];j[0][y]=py[y]*(1-px1[y])}
+var px=[j[0][0]+j[0][1],j[1][0]+j[1][1]],mi=0;
+for(var x=0;x<2;x++)for(y=0;y<2;y++){var p=j[x][y];if(p>1e-12)mi+=p*Math.log2(p/(px[x]*py[y]))}
+mi=Math.max(0,mi);
+var hy=H(py),hyx=hy-mi;
+for(y=0;y<2;y++){var h=$('h'+y);h.style.width=(py[y]*100)+'%';h.textContent='Y='+y+' ('+Math.round(py[y]*100)+'%)'}
+var m=$('mosaic');m.innerHTML='';
+for(y=0;y<2;y++){
+var col=document.createElement('div');col.style.width=(py[y]*100)+'%';
+for(x=0;x<2;x++){
+var hh=(x==1?px1[y]:1-px1[y])*100,d=document.createElement('div');
+d.className='cell';d.style.height=hh+'%';
+d.style.background=x==1?'var(--accbg)':'var(--mute)';
+d.style.color=x==1?'var(--acctx)':'var(--sub)';
+d.textContent=(hh>14&&py[y]>0.14)?'X='+x+': '+j[x][y].toFixed(2):'';
+col.appendChild(d)}
+m.appendChild(col)}
+$('bi').style.width=(mi*100)+'%';$('br').style.width=(hyx*100)+'%';
+$('bi').textContent=mi*100>16?'I(X;Y) = '+mi.toFixed(2):'';
+$('br').textContent=hyx*100>26?'H(Y|X) = '+hyx.toFixed(2):'';
+$('hy').textContent=hy.toFixed(2);$('hyx').textContent=hyx.toFixed(2);$('mi').textContent=mi.toFixed(2);
+$('pc').textContent=hy>0?Math.round(mi/hy*100)+'%':'0%'}
+['a','b','c'].forEach(function(i){$(i).addEventListener('input',draw)});
+draw();
+</script>
+</body>
+</html>
