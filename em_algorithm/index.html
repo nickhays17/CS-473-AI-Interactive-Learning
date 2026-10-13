@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The EM algorithm, step by step</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef2f6;--panel:#fff;--ink:#1b2430;--mute:#5d6b7c;--line:#d3dbe4;--a:#0e7c86;--b:#d6336c;--grey:#98a4b3;
+  --serif:'Newsreader',Georgia,serif;--sans:'Public Sans',system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161d;--panel:#18212b;--ink:#e6ecf2;--mute:#9aa8b8;--line:#2c3947;--a:#39b8c4;--b:#f06a9b;--grey:#6b7889}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+main{max-width:920px;margin:0 auto;padding:28px 18px 60px}
+h1{font:600 clamp(28px,5vw,40px)/1.15 var(--serif);margin:0 0 10px}
+p{margin:0 0 12px;max-width:68ch}
+.lead{color:var(--mute);font-family:var(--serif);font-size:19px;line-height:1.5}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin:16px 0}
+canvas{width:100%;display:block}
+#main{height:340px;cursor:pointer}
+#ll{height:110px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button{font:600 15px var(--sans);padding:9px 16px;border-radius:6px;border:1.5px solid var(--ink);background:var(--panel);color:var(--ink);cursor:pointer}
+button:hover{background:var(--ink);color:var(--bg)}
+button.go{background:var(--ink);color:var(--bg)}
+button.go:hover{opacity:.85}
+button:focus-visible,input:focus-visible{outline:3px solid var(--a);outline-offset:2px}
+label{font-size:14px;color:var(--mute);display:flex;gap:8px;align-items:center}
+input[type=range]{accent-color:var(--a);width:120px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:640px){.cols{grid-template-columns:1fr}}
+.comp b{font-family:var(--serif);font-size:20px}
+.comp table{border-collapse:collapse;font-variant-numeric:tabular-nums;margin-top:6px}
+.comp td{padding:2px 14px 2px 0}.comp td:first-child{color:var(--mute)}
+.sw{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px}
+#story{font-family:var(--serif);font-size:18px;line-height:1.55;min-height:96px}
+#story code,#pt code{font:14px ui-monospace,Menlo,monospace;background:var(--bg);padding:1px 5px;border-radius:4px}
+h2{font:600 22px var(--serif);margin:0 0 6px}
+.hint{font-size:14px;color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+<h1>The EM algorithm, step by step</h1>
+<p class="lead">You have a pile of numbers that came from two overlapping bell curves, and you don't know which curve produced which number. EM untangles this by alternating between two simple guesses.</p>
+
+<div class="panel">
+  <div class="row" style="justify-content:space-between;margin-bottom:8px">
+    <div class="row">
+      <button id="bE" class="go">1. E-step</button>
+      <button id="bM" class="go">2. M-step</button>
+      <button id="bRun">Run to convergence</button>
+    </div>
+    <div class="row"><button id="bReset">Reset</button><button id="bNew">New data</button></div>
+  </div>
+  <canvas id="main" role="img" aria-label="Data points on a number line with two fitted bell curves"></canvas>
+  <p class="hint" style="margin:8px 0 0">Dots are data. Their color shows how much they belong to each curve (grey = not yet assigned). Click a dot to see its numbers.</p>
+</div>
+
+<div class="panel"><h2>What just happened</h2><div id="story"></div></div>
+
+<div class="cols">
+  <div class="panel comp" id="c0"></div>
+  <div class="panel comp" id="c1"></div>
+</div>
+
+<div class="panel" id="ptbox"><h2>A single point</h2><div id="pt" class="hint">Click a dot above to see how its responsibility is calculated.</div></div>
+
+<div class="panel">
+  <h2>Starting guess</h2>
+  <div class="row">
+    <label>Curve 1 starts at <input type="range" id="s0" min="-5" max="7" step="0.5" value="-1"><span id="v0"></span></label>
+    <label>Curve 2 starts at <input type="range" id="s1" min="-5" max="7" step="0.5" value="1"><span id="v1"></span></label>
+  </div>
+  <p class="hint" style="margin-top:8px">Try putting both near the same spot, or swapping them. EM always improves the fit, but it can settle in different places depending on where it starts.</p>
+</div>
+
+<div class="panel">
+  <h2>Log-likelihood after each round</h2>
+  <canvas id="ll" role="img" aria-label="Log-likelihood rising across iterations"></canvas>
+  <p class="hint" style="margin:6px 0 0">Every full round (E then M) can only raise this number or leave it unchanged. When the line flattens, EM has converged.</p>
+</div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const X0=-6,X1=9;
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const N=(x,m,s)=>Math.exp(-0.5*((x-m)/s)**2)/(s*Math.sqrt(2*Math.PI));
+let seed=7,data=[],jit=[],S;
+function genData(){
+  const r=rng(seed),g=()=>Math.sqrt(-2*Math.log(r()+1e-9))*Math.cos(2*Math.PI*r());
+  data=[];jit=[];
+  for(let i=0;i<70;i++){data.push(r()<0.4?-2+0.8*g():2.8+1.1*g());jit.push(r())}
+}
+function reset(){
+  S={mu:[+$('s0').value,+$('s1').value],sig:[1.5,1.5],pi:[.5,.5],r:null,phase:'init',hist:[],sel:-1,iter:0};
+  S.hist.push(loglik());
+  story();draw();
+}
+function loglik(){return data.reduce((a,x)=>a+Math.log(S.pi[0]*N(x,S.mu[0],S.sig[0])+S.pi[1]*N(x,S.mu[1],S.sig[1])+1e-300),0)}
+function eStep(){
+  S.r=data.map(x=>{const a=S.pi[0]*N(x,S.mu[0],S.sig[0]),b=S.pi[1]*N(x,S.mu[1],S.sig[1]),t=a+b+1e-300;return[a/t,b/t]});
+  S.phase='E';
+}
+function mStep(){
+  if(!S.r)eStep();
+  for(let k=0;k<2;k++){
+    const nk=S.r.reduce((a,r)=>a+r[k],0)+1e-9;
+    const m=S.r.reduce((a,r,i)=>a+r[k]*data[i],0)/nk;
+    const v=S.r.reduce((a,r,i)=>a+r[k]*(data[i]-m)**2,0)/nk;
+    S.mu[k]=m;S.sig[k]=Math.max(Math.sqrt(v),0.05);S.pi[k]=nk/data.length;
+  }
+  S.phase='M';S.iter++;S.hist.push(loglik());
+}
+const f=(v,d=2)=>v.toFixed(d);
+function story(){
+  const el=$('story'),n=data.length;
+  if(S.phase==='init')el.innerHTML=`We start with a rough guess: two bell curves centered at <code>${f(S.mu[0],1)}</code> and <code>${f(S.mu[1],1)}</code>, equally likely. Press <b>E-step</b> to ask: given these curves, how much does each dot belong to each one?`;
+  else if(S.phase==='E')el.innerHTML=`<b>Expectation.</b> With the curves held fixed, each dot gets a <em>responsibility</em>: the probability it came from curve 1 vs curve 2. Dots between the curves are shared (purple-ish blends). Now press <b>M-step</b> to refit the curves using these soft assignments.`;
+  else{const d=S.hist.length>2?S.hist[S.hist.length-1]-S.hist[S.hist.length-2]:null;
+    el.innerHTML=`<b>Maximization.</b> With responsibilities held fixed, each curve is refit to the dots it owns: its mean is a weighted average, its width a weighted spread, and its weight is its share of the total. Round ${S.iter} done${d!==null?`; log-likelihood changed by <code>${d>=0?'+':''}${f(d,4)}</code>`:''}. ${d!==null&&Math.abs(d)<1e-4?'It has stopped improving: <b>converged</b>.':'Repeat E and M.'}`}
+  const cols=['var(--a)','var(--b)'];
+  for(let k=0;k<2;k++)$('c'+k).innerHTML=`<b><span class="sw" style="background:${cols[k]}"></span>Curve ${k+1}</b>
+   <table><tr><td>mean μ</td><td>${f(S.mu[k])}</td></tr><tr><td>spread σ</td><td>${f(S.sig[k])}</td></tr><tr><td>weight π</td><td>${f(S.pi[k])}</td></tr></table>`;
+  pt();
+}
+function pt(){
+  const i=S.sel,el=$('pt');
+  if(i<0){el.className='hint';el.textContent='Click a dot above to see how its responsibility is calculated.';return}
+  const x=data[i],a=S.pi[0]*N(x,S.mu[0],S.sig[0]),b=S.pi[1]*N(x,S.mu[1],S.sig[1]);
+  el.className='';
+  el.innerHTML=`<p>The dot at <code>x = ${f(x)}</code>. Each curve's claim is its weight times its height at x:</p>
+  <p>Curve 1: <code>${f(S.pi[0])} × ${f(N(x,S.mu[0],S.sig[0]),3)} = ${f(a,4)}</code><br>Curve 2: <code>${f(S.pi[1])} × ${f(N(x,S.mu[1],S.sig[1]),3)} = ${f(b,4)}</code></p>
+  <p>Dividing each claim by the total gives responsibilities of <b style="color:var(--a)">${f(a/(a+b+1e-300)*100,1)}%</b> and <b style="color:var(--b)">${f(b/(a+b+1e-300)*100,1)}%</b>. These are computed from the <em>current</em> curves; press E-step to store them for every dot.</p>`;
+}
+/* drawing */
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function setup(c){const d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*d;c.height=h*d;const g=c.getContext('2d');g.setTransform(d,0,0,d,0,0);return[g,w,h]}
+function mix(c0,c1,t){const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));const hex=css('--a'),hex2=css('--b');
+  const a=p(c0),b=p(c1);return`rgb(${a.map((v,i)=>Math.round(v+(b[i]-v)*t)).join(',')})`}
+let geo={};
+function draw(){
+  const c=$('main'),[g,W,H]=setup(c),A=css('--a'),B=css('--b'),ink=css('--ink'),mute=css('--mute'),line=css('--line'),grey=css('--grey');
+  const L=14,R=W-14,T=16,Bt=H-70,base=H-34;
+  const px=x=>L+(x-X0)/(X1-X0)*(R-L);
+  const ymax=0.5,py=y=>Bt-y/ymax*(Bt-T);
+  g.clearRect(0,0,W,H);
+  g.strokeStyle=line;g.fillStyle=mute;g.font='12px '+css('--sans');g.textAlign='center';
+  g.beginPath();g.moveTo(L,Bt);g.lineTo(R,Bt);g.stroke();
+  for(let x=-6;x<=9;x+=3){g.fillText(x,px(x),Bt+14)}
+  const cols=[A,B];
+  for(let k=0;k<2;k++){
+    g.beginPath();g.moveTo(px(X0),Bt);
+    for(let x=X0;x<=X1;x+=.1)g.lineTo(px(x),py(S.pi[k]*N(x,S.mu[k],S.sig[k])));
+    g.lineTo(px(X1),Bt);g.closePath();g.globalAlpha=.22;g.fillStyle=cols[k];g.fill();g.globalAlpha=1;
+    g.strokeStyle=cols[k];g.lineWidth=2;g.stroke();
+    g.beginPath();g.moveTo(px(S.mu[k]),Bt);g.lineTo(px(S.mu[k]),py(S.pi[k]*N(S.mu[k],S.mu[k],S.sig[k])));g.setLineDash([4,4]);g.stroke();g.setLineDash([]);
+  }
+  g.beginPath();
+  for(let x=X0;x<=X1;x+=.1){const y=py(S.pi[0]*N(x,S.mu[0],S.sig[0])+S.pi[1]*N(x,S.mu[1],S.sig[1]));x===X0?g.moveTo(px(x),y):g.lineTo(px(x),y)}
+  g.strokeStyle=ink;g.lineWidth=1.5;g.stroke();
+  geo=[];
+  data.forEach((x,i)=>{
+    const y=base+(jit[i]-.5)*34,xx=px(x);geo.push([xx,y]);
+    g.beginPath();g.arc(xx,y,5,0,7);
+    g.fillStyle=S.r?mix(A,B,S.r[i][1]):grey;g.globalAlpha=.9;g.fill();g.globalAlpha=1;
+    g.lineWidth=i===S.sel?3:1;g.strokeStyle=i===S.sel?ink:'rgba(0,0,0,.25)';g.stroke();
+  });
+  drawLL();
+}
+function drawLL(){
+  const c=$('ll'),[g,W,H]=setup(c),h=S.hist,lo=Math.min(...h),hi=Math.max(...h),sp=(hi-lo)||1;
+  g.clearRect(0,0,W,H);
+  const px=i=>20+(h.length<2?0:i/(Math.max(h.length-1,10))*(W-40)),py=v=>H-14-(v-lo)/sp*(H-28);
+  g.strokeStyle=css('--ink');g.lineWidth=2;g.beginPath();
+  h.forEach((v,i)=>i?g.lineTo(px(i),py(v)):g.moveTo(px(i),py(v)));g.stroke();
+  g.fillStyle=css('--a');h.forEach((v,i)=>{g.beginPath();g.arc(px(i),py(v),3.5,0,7);g.fill()});
+  g.fillStyle=css('--mute');g.font='12px '+css('--sans');g.textAlign='left';
+  g.fillText(f(h[h.length-1],1)+' now',24,14);
+}
+function refresh(){story();draw()}
+$('bE').onclick=()=>{eStep();refresh()};
+$('bM').onclick=()=>{mStep();refresh()};
+$('bRun').onclick=()=>{
+  let n=0;const tick=()=>{const prev=S.hist[S.hist.length-1];eStep();mStep();refresh();
+    if(Math.abs(S.hist[S.hist.length-1]-prev)>1e-5&&++n<80)setTimeout(tick,220)};tick();
+};
+$('bReset').onclick=reset;
+$('bNew').onclick=()=>{seed++;genData();reset()};
+['s0','s1'].forEach((id,k)=>{const u=()=>$('v'+k).textContent=$(id).value;u();$(id).oninput=()=>{u();reset()}});
+$('main').onclick=e=>{
+  const r=$('main').getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+  let best=-1,bd=18;geo.forEach(([x,y],i)=>{const d=Math.hypot(x-mx,y-my);if(d<bd){bd=d;best=i}});
+  S.sel=best;pt();draw();
+};
+addEventListener('resize',draw);
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',draw);
+genData();reset();
+</script>
+</body>
+</html>
