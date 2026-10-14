@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Naive Bayes, generative and discriminative models</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+:root{--bg:#f5f7fa;--ink:#18222f;--mut:#5b6777;--line:#d5dce5;--pan:#fff;--a:#0b8a7c;--b:#c42f6b;--g:#d99a00;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161e;--ink:#e6ecf3;--mut:#9aa6b5;--line:#2a3441;--pan:#17202b;--a:#2fc4b3;--b:#f06a9b;--g:#f0b72b}}
+:root[data-theme="dark"]{--bg:#10161e;--ink:#e6ecf3;--mut:#9aa6b5;--line:#2a3441;--pan:#17202b;--a:#2fc4b3;--b:#f06a9b;--g:#f0b72b}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 "Source Sans 3",system-ui,sans-serif}
+main{max-width:860px;margin:0 auto;padding:28px 18px 60px}
+h1,h2,h3{font-family:"Bricolage Grotesque",system-ui,sans-serif;line-height:1.15;margin:0 0 .5em}
+h1{font-size:clamp(28px,5vw,40px)}h2{font-size:24px;margin-top:1.4em}h3{font-size:18px}
+p{margin:.5em 0;max-width:68ch}
+.sub{color:var(--mut)}
+nav{display:flex;gap:22px;border-bottom:1px solid var(--line);margin:18px 0 8px;overflow-x:auto}
+nav button{background:none;border:0;border-bottom:3px solid transparent;color:var(--mut);font:600 16px "Source Sans 3",system-ui,sans-serif;padding:10px 0;cursor:pointer;white-space:nowrap}
+nav button[aria-selected=true]{color:var(--ink);border-color:var(--a)}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:3px solid var(--g);outline-offset:2px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:16px 0}
+@media(max-width:640px){.cols{grid-template-columns:1fr}}
+.col{border-left:5px solid var(--a);padding:2px 0 2px 14px}.col.d{border-color:var(--g)}
+.eq{font:600 17px ui-monospace,Menlo,monospace;background:var(--pan);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:10px 0;overflow-x:auto;white-space:nowrap}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:480px;font-size:15px;background:var(--pan)}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{font-weight:600}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.bar button,.chip{border:1px solid var(--line);background:var(--pan);color:var(--ink);border-radius:999px;padding:6px 14px;font:600 14px "Source Sans 3",system-ui,sans-serif;cursor:pointer}
+.bar button[aria-pressed=true],.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.bar .A[aria-pressed=true]{background:var(--a);border-color:var(--a);color:#fff}
+.bar .B[aria-pressed=true]{background:var(--b);border-color:var(--b);color:#fff}
+canvas{width:100%;aspect-ratio:700/440;background:var(--pan);border:1px solid var(--line);border-radius:8px;cursor:crosshair;touch-action:manipulation;display:block}
+.read{font-size:15px;background:var(--pan);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:10px}
+.read b.A,.A-t{color:var(--a)}.read b.B,.B-t{color:var(--b)}
+.key{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;color:var(--mut);margin:6px 0}
+.sw{display:inline-block;width:22px;height:4px;vertical-align:middle;margin-right:5px}
+.row{display:grid;grid-template-columns:90px 1fr 70px;gap:10px;align-items:center;font-size:15px;padding:5px 0}
+.track{position:relative;height:16px;background:var(--line);border-radius:3px}
+.track i{position:absolute;top:0;height:100%}.track:after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;background:var(--ink)}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+.words{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.res{font:700 30px "Bricolage Grotesque",system-ui,sans-serif}
+label{font-size:15px}
+input[type=range]{width:200px;vertical-align:middle}
+.note{border-left:5px solid var(--g);padding-left:12px;color:var(--mut);margin:12px 0}
+</style></head>
+<body><main>
+<h1>Naive Bayes, generative and discriminative models</h1>
+<p class="sub">Three short stops: the idea, a 2D sandbox where you can watch both kinds of model learn from your points, and a spam filter you can do by hand.</p>
+<nav role="tablist">
+<button role="tab" data-t="t1" aria-selected="true">The idea</button>
+<button role="tab" data-t="t2" aria-selected="false">Sandbox</button>
+<button role="tab" data-t="t3" aria-selected="false">Spam filter</button>
+</nav>
+
+<section id="t1">
+<h2>Two ways to learn a classifier</h2>
+<p>You want to predict a label <b>y</b> (say spam or not spam) from features <b>x</b>. There are two routes.</p>
+<div class="cols">
+<div class="col"><h3>Generative: learn how each class makes data</h3>
+<div class="eq">p(x, y) = p(x | y) · p(y)</div>
+<p>Model what spam looks like and what ham looks like, then use Bayes' rule to flip it around:</p>
+<div class="eq">p(y | x) ∝ p(x | y) · p(y)</div>
+<p>Examples: Naive Bayes, Gaussian mixtures, hidden Markov models.</p></div>
+<div class="col d"><h3>Discriminative: learn the dividing line</h3>
+<div class="eq">p(y | x)</div>
+<p>Skip the story about how x arises. Model only the answer you need: given x, which label?</p>
+<p>Examples: logistic regression, SVMs, most neural network classifiers.</p></div>
+</div>
+<p>A generative model can <b>sample</b> new x values because it knows p(x | y). A discriminative model cannot, but it spends all its capacity on the boundary.</p>
+
+<h2>Where Naive Bayes fits</h2>
+<p>Naive Bayes is a generative model with one simplifying assumption: given the class, the features are independent.</p>
+<div class="eq">p(x | y) = p(x₁ | y) · p(x₂ | y) · … · p(x_d | y)</div>
+<p>With d binary features, the full p(x | y) needs about 2<sup>d</sup> numbers per class. The naive version needs d. The assumption is usually false (the words "free" and "winner" often appear together), but the resulting classifier is often still good, because it only needs to get the ranking of the classes right, not the exact probabilities.</p>
+
+<h2>Trade-offs</h2>
+<div class="wrap"><table>
+<tr><th></th><th>Generative (e.g. Naive Bayes)</th><th>Discriminative (e.g. logistic regression)</th></tr>
+<tr><td>Learns</td><td>p(x | y) and p(y)</td><td>p(y | x)</td></tr>
+<tr><td>Little data</td><td>Often better: strong assumptions act as a guide, and it converges fast</td><td>Can overfit or be unstable</td></tr>
+<tr><td>Lots of data</td><td>Capped by how wrong its assumptions are</td><td>Usually wins, with lower final error</td></tr>
+<tr><td>Wrong assumptions</td><td>Hurt directly (try the correlated data in the sandbox)</td><td>Fewer assumptions about x, so more robust</td></tr>
+<tr><td>Extras</td><td>Can sample data, handle missing features, use unlabeled data</td><td>Only predicts labels</td></tr>
+</table></div>
+<p class="note">Head to the Sandbox and switch the dataset to "Correlated" to see Naive Bayes' independence assumption fail.</p>
+</section>
+
+<section id="t2" hidden>
+<h2>Sandbox: Gaussian Naive Bayes vs logistic regression</h2>
+<p>Click the canvas to add points. Both models refit instantly. Shading shows the chosen model's P(class A); the lines mark where each model says P = 0.5.</p>
+<div class="bar" id="ds"><span>Dataset:</span></div>
+<div class="bar"><span>Click adds:</span>
+<button class="A" id="cA" aria-pressed="true">Class A</button><button class="B" id="cB" aria-pressed="false">Class B</button>
+<button id="undo">Undo</button><button id="clear">Clear</button></div>
+<div class="bar"><span>Shade by:</span>
+<button id="sG" aria-pressed="true">Naive Bayes (generative)</button><button id="sD" aria-pressed="false">Logistic (discriminative)</button>
+<button id="tE" aria-pressed="false">Show learned Gaussians</button><button id="tS">Sample from Naive Bayes</button></div>
+<canvas id="cv" width="700" height="440" tabindex="0" aria-label="Scatter plot. Click to add points."></canvas>
+<div class="key"><span><span class="sw" style="background:var(--ink)"></span>Naive Bayes boundary</span><span><span class="sw" style="background:var(--g)"></span>Logistic boundary</span><span>Hollow rings: points the generative model invented</span></div>
+<div class="read" id="hov">Hover over the plot to compare predictions.</div>
+<div class="read" id="stats"></div>
+<p class="sub">Things to try: on <b>Clean</b> both agree. On <b>Correlated</b> the classes are diagonal blobs, but Naive Bayes can only draw axis-aligned ellipses (turn on "Show learned Gaussians"), so its boundary tilts the wrong way. On <b>Imbalanced</b> watch the prior shift Naive Bayes toward the big class. Press "Sample" to see a generative model make data; logistic regression has no such button.</p>
+</section>
+
+<section id="t3" hidden>
+<h2>Spam filter by hand</h2>
+<p>Training data: 40 spam emails and 60 ham (not spam). The table shows how many of each contained a word. Tap words to put them in a new email, and watch the evidence add up.</p>
+<div class="wrap"><table id="tbl"></table></div>
+<div class="bar"><label>Prior P(spam): <input type="range" id="pr" min="5" max="95" value="40"> <b id="prv"></b></label></div>
+<div class="bar"><label>Smoothing α: <input type="range" id="al" min="0" max="2" step="0.5" value="1"> <b id="alv"></b></label></div>
+<h3>Words in the email</h3>
+<div class="words" id="words"></div>
+<div id="out"></div>
+<p class="note">Naive Bayes adds <b>log-ratios</b> because multiplying independent probabilities becomes adding in log space. Each word votes for spam (right) or ham (left). Set α to 0 and pick "winner": no ham email had that word, so the likelihood is 0 and one word wins the whole argument. Smoothing adds α to every count to stop that.</p>
+</section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+ document.querySelectorAll('nav button').forEach(x=>x.setAttribute('aria-selected',x===b));
+ document.querySelectorAll('section').forEach(s=>s.hidden=s.id!==b.dataset.t)});
+
+/* ---------- Sandbox ---------- */
+const W=700,H=440,cv=$('#cv'),cx=cv.getContext('2d');
+let pts=[],cls='A',shade='G',ell=false,samples=[],gnb,lr;
+const px=x=>x/10*W,py=y=>H-y/10*H,ix=p=>p/W*10,iy=p=>(H-p)/10;
+const rng=s=>()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const gz=r=>Math.sqrt(-2*Math.log(r()+1e-9))*Math.cos(2*Math.PI*r());
+const clamp=v=>Math.min(9.8,Math.max(.2,v));
+function blob(r,c,n,mx,my,s1,s2,deg){const t=deg*Math.PI/180,o=[];
+ for(let i=0;i<n;i++){const u=s1*gz(r),v=s2*gz(r);
+  o.push({c,v:[clamp(mx+u*Math.cos(t)-v*Math.sin(t)),clamp(my+u*Math.sin(t)+v*Math.cos(t))]})}return o}
+const PRE={
+ Clean:r=>[...blob(r,'A',25,3,6.2,.8,.8,0),...blob(r,'B',25,7,3.8,.8,.8,0)],
+ Overlapping:r=>[...blob(r,'A',30,4,5.6,1.5,1.5,0),...blob(r,'B',30,6,4.4,1.5,1.5,0)],
+ Correlated:r=>[...blob(r,'A',30,4,5.4,1.7,.4,40),...blob(r,'B',30,6,4.6,1.7,.4,40)],
+ Imbalanced:r=>[...blob(r,'A',45,3.8,6,1.2,1.2,0),...blob(r,'B',7,6.4,4,1,1,0)]};
+Object.keys(PRE).forEach((k,i)=>{const b=document.createElement('button');b.textContent=k;b.onclick=()=>{pts=PRE[k](rng(7+i));samples=[];refit()};$('#ds').append(b)});
+
+function refit(){
+ const g={};
+ for(const c of 'AB'){const p=pts.filter(q=>q.c===c),n=Math.max(p.length,1);
+  const m=[0,1].map(j=>p.reduce((s,q)=>s+q.v[j],0)/n);
+  const v=[0,1].map(j=>Math.max(.05,p.reduce((s,q)=>s+(q.v[j]-m[j])**2,0)/n));
+  g[c]={n:p.length,m,v}}
+ g.A.pr=(g.A.n+1)/(pts.length+2);g.B.pr=1-g.A.pr;gnb=g;
+ let w=[0,0,0];
+ for(let it=0;it<500;it++){const d=[0,0,0];
+  for(const q of pts){const z=[1,(q.v[0]-5)/3,(q.v[1]-5)/3],e=sig(w[0]*z[0]+w[1]*z[1]+w[2]*z[2])-(q.c==='A'?1:0);for(let k=0;k<3;k++)d[k]+=e*z[k]}
+  for(let k=0;k<3;k++)w[k]-=.6*(d[k]/Math.max(pts.length,1)+(k?.01*w[k]:0))}
+ lr=w;draw();stats()}
+const sig=l=>1/(1+Math.exp(-l));
+function gl(x,y){const A=gnb.A,B=gnb.B,v=[x,y];let l=Math.log(A.pr/B.pr);
+ for(let j=0;j<2;j++)l+=-.5*Math.log(A.v[j]/B.v[j])-.5*((v[j]-A.m[j])**2/A.v[j]-(v[j]-B.m[j])**2/B.v[j]);return l}
+const ll=(x,y)=>lr[0]+lr[1]*(x-5)/3+lr[2]*(y-5)/3;
+const col=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function bound(f,color,cs=2){cx.fillStyle=color;const nc=Math.ceil(W/cs),nr=Math.ceil(H/cs),s=[];
+ for(let i=0;i<nc;i++){s[i]=[];for(let j=0;j<nr;j++)s[i][j]=f(ix(i*cs),iy(j*cs))>0}
+ for(let i=0;i<nc-1;i++)for(let j=0;j<nr-1;j++)if(s[i][j]!==s[i+1][j]||s[i][j]!==s[i][j+1])cx.fillRect(i*cs-1,j*cs-1,3,3)}
+function draw(){
+ const a=col('--a'),b=col('--b'),f=shade==='G'?gl:ll,C=10;
+ cx.clearRect(0,0,W,H);
+ for(let i=0;i<W/C;i++)for(let j=0;j<H/C;j++){const p=sig(f(ix(i*C+5),iy(j*C+5)));
+  cx.globalAlpha=.06+.3*Math.abs(2*p-1);cx.fillStyle=p>.5?a:b;cx.fillRect(i*C,j*C,C,C)}
+ cx.globalAlpha=1;
+ if(pts.length>1){bound(ll,col('--g'));bound(gl,col('--ink'))}
+ if(ell&&pts.length>1)for(const c of 'AB'){const g=gnb[c];cx.strokeStyle=c==='A'?a:b;cx.lineWidth=2;cx.setLineDash([6,5]);
+  for(const k of[1,2]){cx.beginPath();cx.ellipse(px(g.m[0]),py(g.m[1]),px(k*Math.sqrt(g.v[0])),H-py(k*Math.sqrt(g.v[1])),0,0,7);cx.stroke()}
+  cx.setLineDash([]);cx.beginPath();cx.moveTo(px(g.m[0])-7,py(g.m[1]));cx.lineTo(px(g.m[0])+7,py(g.m[1]));cx.moveTo(px(g.m[0]),py(g.m[1])-7);cx.lineTo(px(g.m[0]),py(g.m[1])+7);cx.stroke()}
+ for(const q of pts){cx.beginPath();cx.arc(px(q.v[0]),py(q.v[1]),6,0,7);cx.fillStyle=q.c==='A'?a:b;cx.fill();cx.strokeStyle=col('--pan');cx.lineWidth=1.5;cx.stroke()}
+ for(const q of samples){cx.beginPath();cx.arc(px(q.v[0]),py(q.v[1]),7,0,7);cx.strokeStyle=q.c==='A'?a:b;cx.lineWidth=3;cx.stroke()}}
+function stats(){
+ const acc=f=>pts.length?Math.round(100*pts.filter(q=>(f(...q.v)>0)===(q.c==='A')).length/pts.length):0,F=n=>n.toFixed(2),A=gnb.A,B=gnb.B;
+ $('#stats').innerHTML=`<b>Naive Bayes</b> learned, per class, a prior plus a mean and spread for each axis. <b class="A">A</b>: prior ${F(A.pr)}, mean (${F(A.m[0])}, ${F(A.m[1])}), sd (${F(Math.sqrt(A.v[0]))}, ${F(Math.sqrt(A.v[1]))}). <b class="B">B</b>: prior ${F(B.pr)}, mean (${F(B.m[0])}, ${F(B.m[1])}), sd (${F(Math.sqrt(B.v[0]))}, ${F(Math.sqrt(B.v[1]))}). Training accuracy: <b>${acc(gl)}%</b>.<br><b>Logistic regression</b> learned only a boundary: weights (${F(lr[1])}, ${F(lr[2])}), bias ${F(lr[0])}. Training accuracy: <b>${acc(ll)}%</b>.`}
+function pos(e){const r=cv.getBoundingClientRect();return[ix((e.clientX-r.left)/r.width*W),iy((e.clientY-r.top)/r.height*H)]}
+cv.onclick=e=>{pts.push({c:cls,v:pos(e)});samples=[];refit()};
+cv.onmousemove=e=>{const[x,y]=pos(e);$('#hov').innerHTML=`At (${x.toFixed(1)}, ${y.toFixed(1)}): Naive Bayes says P(<b class="A">A</b>) = <b>${sig(gl(x,y)).toFixed(2)}</b>, logistic says <b>${sig(ll(x,y)).toFixed(2)}</b>.`};
+const tog=(id,fn)=>$(id).onclick=fn;
+function setCls(c){cls=c;$('#cA').setAttribute('aria-pressed',c==='A');$('#cB').setAttribute('aria-pressed',c==='B')}
+tog('#cA',()=>setCls('A'));tog('#cB',()=>setCls('B'));
+tog('#undo',()=>{pts.pop();samples=[];refit()});tog('#clear',()=>{pts=[];samples=[];refit()});
+function setSh(s){shade=s;$('#sG').setAttribute('aria-pressed',s==='G');$('#sD').setAttribute('aria-pressed',s==='D');draw()}
+tog('#sG',()=>setSh('G'));tog('#sD',()=>setSh('D'));
+tog('#tE',()=>{ell=!ell;$('#tE').setAttribute('aria-pressed',ell);draw()});
+tog('#tS',()=>{const r=Math.random;samples=[];
+ for(let i=0;i<14;i++){const c=r()<gnb.A.pr?'A':'B',g=gnb[c];
+  samples.push({c,v:[clamp(g.m[0]+Math.sqrt(g.v[0])*gz(r)),clamp(g.m[1]+Math.sqrt(g.v[1])*gz(r))]})}draw()});
+matchMedia('(prefers-color-scheme:dark)').onchange=draw;
+pts=PRE.Clean(rng(7));refit();
+
+/* ---------- Spam filter ---------- */
+const NS=40,NH=60,V=[['free',28,3],['winner',18,0],['click',22,6],['urgent',15,4],['meeting',0,30],['invoice',5,18],['lunch',1,20],['report',2,25]];
+const on=new Set(['free','click']);
+$('#tbl').innerHTML='<tr><th>Word</th><th>In spam (of 40)</th><th>In ham (of 60)</th></tr>'+V.map(v=>`<tr><td>${v[0]}</td><td>${v[1]}</td><td>${v[2]}</td></tr>`).join('');
+V.forEach(v=>{const b=document.createElement('button');b.className='chip';b.textContent=v[0];b.setAttribute('aria-pressed',on.has(v[0]));
+ b.onclick=()=>{on.has(v[0])?on.delete(v[0]):on.add(v[0]);b.setAttribute('aria-pressed',on.has(v[0]));calc()};$('#words').append(b)});
+$('#pr').oninput=calc;$('#al').oninput=calc;
+function calc(){
+ const p=$('#pr').value/100,al=+$('#al').value;$('#prv').textContent=p.toFixed(2);$('#alv').textContent=al;
+ const lik=(c,n)=>(c+al)/(n+2*al),f=n=>isFinite(n)?(n>=0?'+':'')+n.toFixed(2):(n>0?'+∞':'−∞');
+ const items=[{n:'prior',v:Math.log(p/(1-p)),t:'prior'}];
+ for(const w of V)if(on.has(w[0])){const s=lik(w[1],NS),h=lik(w[2],NH);items.push({n:w[0],v:Math.log(s)-Math.log(h),t:`${s.toFixed(3)} / ${h.toFixed(3)}`})}
+ const tot=items.reduce((a,i)=>a+i.v,0),bad=isNaN(tot);
+ const bars=items.map(i=>{const m=isFinite(i.v)?Math.min(50,Math.abs(i.v)/5*50):50,L=i.v<0;
+  return`<div class="row"><span>${i.n}</span><div class="track"><i style="${L?'right':'left'}:50%;width:${m/1}%;background:var(${L?'--b':'--a'})"></i></div><span class="num">${f(i.v)}</span></div>`}).join('');
+ const post=bad?null:sig(tot);
+ $('#out').innerHTML=`<p class="sub">Each row is ln[ P(word | spam) / P(word | ham) ]; the first row is the prior odds. Right of the line pushes toward <b class="A-t">spam</b>, left toward <b class="B-t">ham</b>.</p>${bars}
+ <div class="row"><b>Total</b><span></span><span class="num"><b>${bad?'?':f(tot)}</b></span></div>
+ <div class="res">${bad?'Undefined: spam and ham both get probability 0 (one word rules out each class).':'P(spam | email) = '+post.toFixed(3)+(post>.5?' → spam':' → ham')}</div>`}
+calc();
+</script></body></html>
