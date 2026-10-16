@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fisher's discriminant vs. LDA, interactive</title>
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--fg:#17202e;--muted:#5d6878;--line:#d9dee6;--acc:#0f7b6c;--accbg:#e2f3ef}
+@media(prefers-color-scheme:dark){:root{--bg:#12161d;--card:#1a2029;--fg:#e6eaf0;--muted:#97a1b0;--line:#2c3441;--acc:#4fd1b8;--accbg:#173a35}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 "Avenir Next","Segoe UI",system-ui,sans-serif}
+.page{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 16px;max-width:70ch}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:14px;background:var(--card)}
+.tabs button{border:0;background:none;color:var(--fg);padding:9px 18px;font:inherit;cursor:pointer}
+.tabs button[aria-pressed=true]{background:var(--acc);color:#fff;font-weight:600}
+.grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(280px,1fr);gap:16px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+canvas{width:100%;height:auto;display:block;touch-action:none}
+#cv{cursor:grab;border-radius:6px}
+.hint{color:var(--muted);font-size:13px;margin:6px 2px 10px}
+fieldset{border:0;padding:0;margin:0 0 14px}
+legend{font-weight:600;margin-bottom:6px;padding:0}
+label{display:grid;grid-template-columns:96px 1fr 46px;align-items:center;gap:8px;font-size:14px}
+label span:last-child{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+input[type=range]{width:100%;accent-color:var(--acc)}
+button.b{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer;margin:4px 6px 0 0}
+button.b:hover,button.b:focus-visible{border-color:var(--acc);outline:none}
+.read{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:14px;margin:0}
+.read dt{color:var(--muted)}.read dd{margin:0;font-variant-numeric:tabular-nums;text-align:right}
+.bar{height:8px;border-radius:4px;background:var(--line);margin:6px 0 10px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc);width:0}
+.txt{margin-top:16px;display:grid;gap:12px}
+.txt h2{font-size:16px;margin:0 0 4px}
+.txt p{margin:0 0 6px;max-width:75ch}
+code{background:var(--accbg);padding:1px 5px;border-radius:4px;font-size:13.5px}
+.key{background:var(--accbg);border-left:4px solid var(--acc);padding:10px 14px;border-radius:0 8px 8px 0;margin-top:16px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Fisher's discriminant and LDA, side by side</h1>
+<p class="sub">Two classes in 2D. Drag the ringed class means, change the shared spread, and see how the "best line" and the "best classifier" come from the same formula.</p>
+
+<div class="tabs" role="group" aria-label="View">
+  <button id="tf" aria-pressed="true">Fisher's view: find a direction</button>
+  <button id="tl" aria-pressed="false">LDA view: classify with Gaussians</button>
+</div>
+
+<div class="grid">
+  <div>
+    <div class="card">
+      <canvas id="cv" width="640" height="460" aria-label="Scatter plot of two classes"></canvas>
+      <p class="hint"><span class="dot" style="background:#2f6fd0"></span>class 0 &nbsp; <span class="dot" style="background:#d9602b"></span>class 1 &nbsp; Drag the rings to move the class means. The teal dashed line is the Fisher/LDA direction <code>w</code>.</p>
+      <canvas id="hv" width="640" height="190" aria-label="Histogram of projected values"></canvas>
+      <p class="hint" id="hh"></p>
+    </div>
+  </div>
+  <div class="card">
+    <fieldset><legend>Data (both classes share these)</legend>
+      <label>Spread in x<input type="range" id="sx" min="0.4" max="2" step="0.05"><span></span></label>
+      <label>Spread in y<input type="range" id="sy" min="0.4" max="2" step="0.05"><span></span></label>
+      <label>Correlation<input type="range" id="rho" min="-0.95" max="0.95" step="0.05"><span></span></label>
+      <button class="b" id="rs">Resample points</button>
+    </fieldset>
+    <fieldset id="gf"><legend>Choose your own projection line</legend>
+      <label>Angle<input type="range" id="th" min="-90" max="90" step="0.5"><span></span></label>
+      <button class="b" id="snap">Snap to Fisher optimum</button>
+      <button class="b" id="md">Use plain mean difference</button>
+    </fieldset>
+    <fieldset id="gl" class="hide"><legend>Class prior</legend>
+      <label>P(class 1)<input type="range" id="pi" min="0.05" max="0.95" step="0.05"><span></span></label>
+    </fieldset>
+    <dl class="read" id="rd"></dl>
+    <div class="bar" id="jb" title="J / J max"><i></i></div>
+  </div>
+</div>
+
+<div class="txt" id="tF">
+  <div><h2>What Fisher's discriminant does</h2>
+  <p>Project every point onto a line with direction <code>w</code>. A good line pushes the two class averages far apart (large <em>between-class</em> gap) while keeping each class tightly bunched (small <em>within-class</em> spread). Fisher's score is their ratio:</p>
+  <p><code>J(w) = (wᵀ(μ₁ − μ₀))² / wᵀΣw</code></p>
+  <p>Maximizing J gives <code>w ∝ Σ⁻¹(μ₁ − μ₀)</code>. No Gaussian assumption is made, and the answer is only a direction.</p></div>
+  <div><h2>Things to try</h2>
+  <p>Drag the angle slider and watch the two histograms separate or overlap. Set correlation to 0 with equal spreads: the best line is just the mean difference. Now raise the correlation: the best line rotates away from the mean difference, because Σ⁻¹ avoids directions where the noise is large.</p></div>
+</div>
+<div class="txt hide" id="tL">
+  <div><h2>What LDA adds</h2>
+  <p>LDA is a probability model. It assumes each class is Gaussian with its own mean but one shared covariance Σ. Bayes' rule then gives a linear classifier:</p>
+  <p><code>P(class 1 | x) = 1 / (1 + e^−(wᵀx + b))</code>, with <code>w = Σ⁻¹(μ₁ − μ₀)</code> and <code>b = −½(μ₁ + μ₀)ᵀw + ln(π₁/π₀)</code></p>
+  <p>The decision boundary is the line <code>wᵀx + b = 0</code>, perpendicular to <code>w</code>. The ellipses show each class's 2σ contour: same shape, different centers.</p></div>
+  <div><h2>Things to try</h2>
+  <p>Change the class prior. The direction <code>w</code> stays put, but the boundary slides parallel to itself, away from the more common class. Fisher's method has no notion of priors, so it cannot do this.</p></div>
+</div>
+<div class="key"><b>The punchline:</b> Fisher's direction and LDA's <code>w</code> are the same vector. Fisher derives it by maximizing separation. LDA derives it from Gaussian assumptions and also supplies the threshold <code>b</code>, including the effect of class priors. When the shared-covariance Gaussian assumption holds, LDA is the Bayes-optimal linear classifier.</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id), W=640, H=460, s=64, N=50;
+const cv=$('cv'), g=cv.getContext('2d'), hv=$('hv'), h=hv.getContext('2d');
+let mode='fisher', S={mu:[[-1.3,.9],[1.3,-.5]],sx:1.2,sy:.8,rho:.7,pi:.5,th:0}, Z;
+function rng(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function genZ(seed){const r=rng(seed);Z=[0,1].map(()=>{const a=[];for(let i=0;i<N;i++){const u=r()||1e-9,v=r(),R=Math.sqrt(-2*Math.log(u));a.push([R*Math.cos(6.2832*v),R*Math.sin(6.2832*v)])}
+ const m=[0,1].map(k=>a.reduce((p,q)=>p+q[k],0)/N);return a.map(q=>[q[0]-m[0],q[1]-m[1]])})}
+genZ(7);
+const X=x=>W/2+x*s, Y=y=>H/2-y*s, dark=()=>matchMedia('(prefers-color-scheme:dark)').matches;
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const deg=a=>{a=a*180/Math.PI;if(a>90)a-=180;if(a<=-90)a+=180;return a};
+function compute(){
+ const P=[0,1].map(c=>Z[c].map(z=>[S.mu[c][0]+S.sx*z[0], S.mu[c][1]+S.rho*S.sy*z[0]+S.sy*Math.sqrt(1-S.rho*S.rho)*z[1]]));
+ const m=S.mu; let a=0,b=0,c=0;
+ P.forEach((A,k)=>A.forEach(p=>{const dx=p[0]-m[k][0],dy=p[1]-m[k][1];a+=dx*dx;b+=dx*dy;c+=dy*dy}));
+ const f=1/(2*N-2), Sg=[a*f,b*f,c*f], det=Sg[0]*Sg[2]-Sg[1]*Sg[1];
+ const d=[m[1][0]-m[0][0],m[1][1]-m[0][1]];
+ const w=[(Sg[2]*d[0]-Sg[1]*d[1])/det,(-Sg[1]*d[0]+Sg[0]*d[1])/det];
+ const cen=[(m[0][0]+m[1][0])/2,(m[0][1]+m[1][1])/2];
+ const b0=-(w[0]*cen[0]+w[1]*cen[1])+Math.log(S.pi/(1-S.pi));
+ let ok=0;P.forEach((A,k)=>A.forEach(p=>{if((w[0]*p[0]+w[1]*p[1]+b0>0)==(k==1))ok++}));
+ return{P,Sg,d,w,cen,b:b0,Jmax:d[0]*w[0]+d[1]*w[1],acc:ok/(2*N),aw:deg(Math.atan2(w[1],w[0])),ad:deg(Math.atan2(d[1],d[0]))}
+}
+function line(ctx,x1,y1,x2,y2){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
+function draw(){
+ const D=compute(), dk=dark(), C=[dk?'91,155,240':'47,111,208',dk?'240,138,88':'217,96,43'], fg=css('--fg'), mu=css('--muted'), ln=css('--line'), ac=css('--acc'), card=css('--card');
+ let u;
+ if(mode=='fisher'){u=[Math.cos(S.th*Math.PI/180),Math.sin(S.th*Math.PI/180)];if(u[0]*D.d[0]+u[1]*D.d[1]<0)u=[-u[0],-u[1]]}
+ else{const n=Math.hypot(D.w[0],D.w[1]);u=[D.w[0]/n,D.w[1]/n]}
+ const cen=D.cen;
+ g.clearRect(0,0,W,H);
+ if(mode=='lda')for(let px=0;px<W;px+=8)for(let py=0;py<H;py+=8){const x=(px+4-W/2)/s,y=(H/2-py-4)/s,p=1/(1+Math.exp(-(D.w[0]*x+D.w[1]*y+D.b)));g.fillStyle=`rgba(${p>.5?C[1]:C[0]},${.05+.25*Math.abs(2*p-1)})`;g.fillRect(px,py,8,8)}
+ g.strokeStyle=ln;g.lineWidth=1;line(g,0,H/2,W,H/2);line(g,W/2,0,W/2,H);
+ const A=Math.sqrt(D.Sg[0]),B=D.Sg[1]/A,Cc=Math.sqrt(D.Sg[2]-B*B);
+ if(mode=='lda')[0,1].forEach(k=>{g.beginPath();for(let i=0;i<=60;i++){const t=i/60*6.2832,cx=2*Math.cos(t),cy=2*Math.sin(t),x=S.mu[k][0]+A*cx,y=S.mu[k][1]+B*cx+Cc*cy;i?g.lineTo(X(x),Y(y)):g.moveTo(X(x),Y(y))}g.strokeStyle=`rgb(${C[k]})`;g.lineWidth=1.5;g.stroke()});
+ const proj=p=>{const t=(p[0]-cen[0])*u[0]+(p[1]-cen[1])*u[1];return[cen[0]+t*u[0],cen[1]+t*u[1]]};
+ if(mode=='fisher'){
+  g.lineWidth=1;D.P.forEach((arr,k)=>arr.forEach(p=>{const q=proj(p);g.strokeStyle=`rgba(${C[k]},.25)`;line(g,X(p[0]),Y(p[1]),X(q[0]),Y(q[1]))}));
+  g.strokeStyle=fg;g.lineWidth=2;line(g,X(cen[0]-9*u[0]),Y(cen[1]-9*u[1]),X(cen[0]+9*u[0]),Y(cen[1]+9*u[1]));
+  D.P.forEach((arr,k)=>arr.forEach(p=>{const q=proj(p);g.fillStyle=`rgba(${C[k]},.9)`;g.beginPath();g.arc(X(q[0]),Y(q[1]),2.5,0,6.2832);g.fill()}));
+ }
+ // optimal direction (dashed)
+ const nw=Math.hypot(D.w[0],D.w[1]),ou=[D.w[0]/nw,D.w[1]/nw];
+ g.setLineDash([7,6]);g.strokeStyle=ac;g.lineWidth=2.5;line(g,X(cen[0]-9*ou[0]),Y(cen[1]-9*ou[1]),X(cen[0]+9*ou[0]),Y(cen[1]+9*ou[1]));g.setLineDash([]);
+ if(mode=='lda'){const k=-D.b/(nw*nw),p0=[D.w[0]*k,D.w[1]*k],v=[-ou[1],ou[0]];g.strokeStyle=fg;g.lineWidth=3;line(g,X(p0[0]-12*v[0]),Y(p0[1]-12*v[1]),X(p0[0]+12*v[0]),Y(p0[1]+12*v[1]))}
+ D.P.forEach((arr,k)=>arr.forEach(p=>{g.beginPath();g.arc(X(p[0]),Y(p[1]),3.8,0,6.2832);g.fillStyle=`rgba(${C[k]},.8)`;g.fill();g.strokeStyle=card;g.lineWidth=1;g.stroke()}));
+ [0,1].forEach(k=>{g.beginPath();g.arc(X(S.mu[k][0]),Y(S.mu[k][1]),10,0,6.2832);g.fillStyle=card;g.fill();g.lineWidth=3.5;g.strokeStyle=`rgb(${C[k]})`;g.stroke();g.fillStyle=fg;g.font='600 11px system-ui';g.textAlign='center';g.fillText('μ'+(k?'₁':'₀'),X(S.mu[k][0]),Y(S.mu[k][1])+4)});
+ hist(D,u,C,cen,dk);
+ readouts(D,u);
+}
+function hist(D,u,C,cen,dk){
+ const Wd=640,Hd=190,pv=D.P.map(A=>A.map(p=>(p[0]-cen[0])*u[0]+(p[1]-cen[1])*u[1]));
+ const R=Math.max(2.5,...pv.flat().map(Math.abs))*1.08,nb=30,bw=2*R/nb,fg=css('--fg'),mu=css('--muted'),ln=css('--line');
+ const cnt=pv.map(a=>{const c=Array(nb).fill(0);a.forEach(v=>{c[Math.min(nb-1,Math.floor((v+R)/bw))]++});return c.map(x=>x/(N*bw))});
+ const st=pv.map(a=>{const m=a.reduce((p,q)=>p+q,0)/N,v=a.reduce((p,q)=>p+(q-m)**2,0)/(N-1);return[m,Math.sqrt(v)]});
+ const pdf=(x,k)=>Math.exp(-.5*((x-st[k][0])/st[k][1])**2)/(st[k][1]*2.5066);
+ let top=Math.max(...cnt.flat(),pdf(st[0][0],0),pdf(st[1][0],1))*1.1;
+ const px=v=>20+(v+R)/(2*R)*(Wd-40),py=d=>Hd-26-d/top*(Hd-46);
+ h.clearRect(0,0,Wd,Hd);h.strokeStyle=ln;h.lineWidth=1;line(h,20,py(0),Wd-20,py(0));
+ [0,1].forEach(k=>{h.fillStyle=`rgba(${C[k]},.35)`;cnt[k].forEach((d,i)=>{h.fillRect(px(-R+i*bw)+.5,py(d),px(-R+bw)-px(-R)-1,py(0)-py(d))});
+  h.beginPath();for(let i=0;i<=120;i++){const x=-R+i/60*R;i?h.lineTo(px(x),py(pdf(x,k))):h.moveTo(px(x),py(pdf(x,k)))}h.strokeStyle=`rgb(${C[k]})`;h.lineWidth=2.2;h.stroke()});
+ let thr=0;if(mode=='lda'){thr=-(D.w[0]*cen[0]+D.w[1]*cen[1]+D.b)/Math.hypot(D.w[0],D.w[1])}
+ h.strokeStyle=fg;h.lineWidth=2;h.setLineDash([5,4]);line(h,px(thr),12,px(thr),py(0));h.setLineDash([]);
+ h.fillStyle=mu;h.font='12px system-ui';h.textAlign='center';h.fillText(mode=='lda'?'decision threshold on the projected axis':'midpoint of the two projected means',px(thr),Hd-8);
+ const ov=Math.abs(st[1][0]-st[0][0])/((st[0][1]+st[1][1])/2);
+ $('hh').textContent=`Every point reduced to one number: its position along the line. Curves are fitted bell shapes. The classes sit ${ov.toFixed(1)} average standard deviations apart; more is better.`;
+}
+function readouts(D,u){
+ const f=(x,n=2)=>x.toFixed(n);let html;
+ const sig=u[0]*u[0]*D.Sg[0]+2*u[0]*u[1]*D.Sg[1]+u[1]*u[1]*D.Sg[2], dd=u[0]*D.d[0]+u[1]*D.d[1], J=dd*dd/sig;
+ if(mode=='fisher'){
+  html=`<dt>Between-class gap (wᵀΔμ)²</dt><dd>${f(dd*dd)}</dd><dt>Within-class variance wᵀΣw</dt><dd>${f(sig)}</dd><dt><b>J(w) = gap ÷ variance</b></dt><dd><b>${f(J)}</b></dd><dt>Best possible J</dt><dd>${f(D.Jmax)}</dd><dt>Your angle / best angle</dt><dd>${f(S.th,1)}° / ${f(D.aw,1)}°</dd><dt>Mean-difference angle</dt><dd>${f(D.ad,1)}°</dd>`;
+  $('jb').style.display='';$('jb').firstChild.style.width=Math.min(100,J/D.Jmax*100)+'%';
+ }else{
+  html=`<dt>w = Σ⁻¹(μ₁ − μ₀)</dt><dd>(${f(D.w[0])}, ${f(D.w[1])})</dd><dt>Offset b</dt><dd>${f(D.b)}</dd><dt>Direction of w</dt><dd>${f(D.aw,1)}°</dd><dt>Prior P(class 1)</dt><dd>${f(S.pi)}</dd><dt>Training accuracy</dt><dd>${f(D.acc*100,0)}%</dd><dt>Distance between means (Mahalanobis)</dt><dd>${f(Math.sqrt(D.Jmax))}</dd>`;
+  $('jb').style.display='none';
+ }
+ $('rd').innerHTML=html;
+}
+// controls
+const bind=(id,key,fmt)=>{const e=$(id);e.value=S[key];const up=()=>{S[key]=+e.value;e.nextElementSibling.textContent=fmt(+e.value);draw()};e.addEventListener('input',up);e.nextElementSibling.textContent=fmt(+e.value)};
+bind('sx','sx',v=>v.toFixed(2));bind('sy','sy',v=>v.toFixed(2));bind('rho','rho',v=>v.toFixed(2));bind('pi','pi',v=>v.toFixed(2));bind('th','th',v=>v.toFixed(0)+'°');
+const setTh=a=>{S.th=Math.round(a*2)/2;$('th').value=S.th;$('th').nextElementSibling.textContent=S.th.toFixed(0)+'°';draw()};
+$('snap').onclick=()=>setTh(compute().aw);$('md').onclick=()=>setTh(compute().ad);
+let seed=7;$('rs').onclick=()=>{genZ(++seed*13);draw()};
+const setMode=m=>{mode=m;$('tf').setAttribute('aria-pressed',m=='fisher');$('tl').setAttribute('aria-pressed',m=='lda');
+ $('gf').classList.toggle('hide',m!='fisher');$('gl').classList.toggle('hide',m!='lda');$('tF').classList.toggle('hide',m!='fisher');$('tL').classList.toggle('hide',m!='lda');draw()};
+$('tf').onclick=()=>setMode('fisher');$('tl').onclick=()=>setMode('lda');
+// dragging means
+let drag=-1;const pos=e=>{const r=cv.getBoundingClientRect(),k=W/r.width;return[((e.clientX-r.left)*k-W/2)/s,(H/2-(e.clientY-r.top)*k)/s]};
+cv.addEventListener('pointerdown',e=>{const p=pos(e);let best=-1,bd=1.1;[0,1].forEach(k=>{const d=Math.hypot(p[0]-S.mu[k][0],p[1]-S.mu[k][1]);if(d<bd){bd=d;best=k}});if(best>=0){drag=best;cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing'}});
+cv.addEventListener('pointermove',e=>{if(drag<0)return;const p=pos(e);S.mu[drag]=[Math.max(-4.5,Math.min(4.5,p[0])),Math.max(-3.2,Math.min(3.2,p[1]))];draw()});
+cv.addEventListener('pointerup',()=>{drag=-1;cv.style.cursor='grab'});
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',draw);
+draw();
+</script>
+</body>
+</html>
