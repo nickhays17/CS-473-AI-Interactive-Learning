@@ -1,1 +1,232 @@
 
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kernel density estimation, interactively</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f1f5f8;--panel:#fff;--ink:#16222d;--mute:#586979;--line:#d3dce3;--curve:#3a36c4;--kern:#17907e;--dot:#e0533d;--hist:#cfd8df;--accent-bg:#e8e8fb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f161c;--panel:#17212a;--ink:#e6edf2;--mute:#95a6b4;--line:#2b3946;--curve:#9a97ff;--kern:#45c7b2;--dot:#ff7f68;--hist:#2c3a46;--accent-bg:#252549}}
+:root[data-theme="dark"]{--bg:#0f161c;--panel:#17212a;--ink:#e6edf2;--mute:#95a6b4;--line:#2b3946;--curve:#9a97ff;--kern:#45c7b2;--dot:#ff7f68;--hist:#2c3a46;--accent-bg:#252549}
+html{scroll-padding-top:env(safe-area-inset-top,0px);color-scheme:light dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 18px 56px}
+h1{font:600 clamp(26px,4.5vw,38px)/1.15 Georgia,"Times New Roman",serif;margin:0 0 8px;letter-spacing:-.01em}
+.lede{color:var(--mute);max-width:62ch;margin:0 0 22px;font-family:Georgia,serif;font-size:18px;line-height:1.6}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.plot{padding:10px 10px 6px;position:relative}
+canvas{display:block;width:100%;height:clamp(260px,46vw,400px);touch-action:none;cursor:crosshair}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;padding:4px 8px 6px;font-size:13px;color:var(--mute)}
+.legend i{display:inline-block;width:18px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+.legend .dotk{width:9px;height:9px;border-radius:50%}
+.verdict{margin:14px 0;padding:12px 16px;border-radius:10px;background:var(--accent-bg);font-size:15px}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0;margin-top:14px}
+.controls>section{padding:16px 18px}
+.controls>section+section{border-left:1px solid var(--line)}
+@media(max-width:640px){.controls>section+section{border-left:0;border-top:1px solid var(--line)}}
+h2{font:600 16px/1.3 Georgia,serif;margin:0 0 10px}
+label{display:block;font-size:14px;margin:10px 0 4px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+output{font-variant-numeric:tabular-nums;font-weight:600}
+input[type=range]{width:100%;accent-color:var(--curve)}
+select,button{font:inherit;font-size:14px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer}
+select{width:100%}
+button:hover{border-color:var(--curve)}
+:focus-visible{outline:2px solid var(--curve);outline-offset:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.check{display:flex;gap:8px;align-items:center;font-size:14px;margin:8px 0}
+.stats{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px;margin:0}
+.stats dt{color:var(--mute)}.stats dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.notes{margin-top:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px}
+.notes p{margin:0;color:var(--mute);font-size:15px}
+.notes h2{color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+<h1>Kernel density estimation</h1>
+<p class="lede">A histogram asks which bin each point falls in. A kernel density estimate gives every point its own small bump and adds the bumps together, which produces a smooth curve of where the data is concentrated.</p>
+
+<div class="panel plot">
+<canvas id="cv" role="img" aria-label="Density plot. Click to add data points, drag to move them, double-click to remove."></canvas>
+<div class="legend">
+<span><i class="dotk" style="background:var(--dot)"></i>Data point</span>
+<span><i style="background:var(--kern)"></i>One kernel per point</span>
+<span><i style="background:var(--curve);height:4px"></i>Sum of kernels = the estimate</span>
+<span style="margin-left:auto">Click to add · drag to move · double-click to remove</span>
+</div>
+</div>
+
+<div class="verdict" id="verdict" aria-live="polite"></div>
+
+<div class="panel controls">
+<section>
+<h2>Smoothing</h2>
+<div class="row"><label for="bw" style="margin:0">Bandwidth (h)</label><output id="bwo"></output></div>
+<input id="bw" type="range" min="0.05" max="3" step="0.01" value="0.8">
+<div class="btns"><button id="silv" type="button">Use Silverman’s rule</button></div>
+<label for="kern">Kernel shape</label>
+<select id="kern">
+<option value="gaussian">Gaussian (bell)</option>
+<option value="epanechnikov">Epanechnikov (parabola)</option>
+<option value="triangular">Triangular</option>
+<option value="uniform">Uniform (box)</option>
+</select>
+</section>
+<section>
+<h2>Data</h2>
+<div class="btns">
+<button type="button" data-p="two">Two clusters</button>
+<button type="button" data-p="one">One bell</button>
+<button type="button" data-p="skew">Skewed</button>
+<button type="button" data-p="five">Five points</button>
+<button type="button" data-p="none">Clear</button>
+</div>
+<label class="check"><input type="checkbox" id="sk" checked> Show each point’s kernel</label>
+<label class="check"><input type="checkbox" id="sh"> Show histogram for comparison</label>
+</section>
+<section>
+<h2>What the curve says</h2>
+<dl class="stats">
+<dt>Points</dt><dd id="sn"></dd>
+<dt>Your h</dt><dd id="sh2"></dd>
+<dt>Silverman h</dt><dd id="ss"></dd>
+<dt>Peaks in curve</dt><dd id="sm"></dd>
+<dt>Area under curve</dt><dd id="sa"></dd>
+</dl>
+</section>
+</div>
+
+<div class="notes">
+<div><h2>The recipe</h2><p>For each point, draw a kernel (a small bump) centered on it. Scale each bump so its area is 1/n, then add them all up. The height of the total at any x is the estimated density there, and the total area stays exactly 1.</p></div>
+<div><h2>Bandwidth matters most</h2><p>It sets how wide each bump is. Too small and the curve spikes at every point. Too large and real structure, like two separate clusters, melts into one hump. The kernel shape matters far less.</p></div>
+<div><h2>Things to try</h2><p>Load “Two clusters” and slide h up until the two peaks merge. Then switch kernels at a fixed h. Finally, drag a single point far to the right and watch how only its own bump moves.</p></div>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+const X0 = -2, X1 = 12;
+let pts = [], h = 0.8, kernel = 'gaussian', drag = -1;
+
+const K = {
+  gaussian: u => Math.exp(-u * u / 2) / Math.sqrt(2 * Math.PI),
+  epanechnikov: u => Math.abs(u) < 1 ? 0.75 * (1 - u * u) : 0,
+  triangular: u => Math.abs(u) < 1 ? 1 - Math.abs(u) : 0,
+  uniform: u => Math.abs(u) < 1 ? 0.5 : 0
+};
+
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function normal(r, m, s) { return m + s * Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r()); }
+const clamp = x => Math.min(X1 - .1, Math.max(X0 + .1, x));
+function preset(p) {
+  const r = rng(7); pts = [];
+  if (p === 'two') { for (let i = 0; i < 12; i++) pts.push(normal(r, 3, .7)); for (let i = 0; i < 10; i++) pts.push(normal(r, 7.2, 1)); }
+  if (p === 'one') for (let i = 0; i < 22; i++) pts.push(normal(r, 5, 1.2));
+  if (p === 'skew') for (let i = 0; i < 24; i++) pts.push(2 + -Math.log(1 - r()) * 1.6);
+  if (p === 'five') pts = [2, 3, 3.6, 7, 8.2];
+  pts = pts.map(clamp); update();
+}
+
+function silverman() {
+  const n = pts.length; if (n < 2) return NaN;
+  const s = [...pts].sort((a, b) => a - b), m = s.reduce((a, b) => a + b) / n;
+  const sd = Math.sqrt(s.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1));
+  const q = p => { const i = (n - 1) * p, f = Math.floor(i); return s[f] + (s[Math.min(f + 1, n - 1)] - s[f]) * (i - f); };
+  const iqr = q(.75) - q(.25), sp = iqr > 0 ? Math.min(sd, iqr / 1.34) : sd;
+  return Math.max(0.05, 0.9 * (sp || .3) * Math.pow(n, -.2));
+}
+
+const col = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const NS = 320;
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const L = 12, R = 12, T = 12, B = 30, pw = W - L - R, ph = H - T - B, n = pts.length, k = K[kernel];
+  const sx = x => L + (x - X0) / (X1 - X0) * pw;
+  const xs = Array.from({ length: NS + 1 }, (_, i) => X0 + (X1 - X0) * i / NS);
+  const kde = xs.map(x => { let s = 0; for (const p of pts) s += k((x - p) / h); return n ? s / (n * h) : 0; });
+  const bw = .5, nb = Math.ceil((X1 - X0) / bw), bins = new Array(nb).fill(0);
+  pts.forEach(p => bins[Math.min(nb - 1, Math.floor((p - X0) / bw))]++);
+  const showH = $('sh').checked, showK = $('sk').checked;
+  const hMax = n ? Math.max(...bins) / (n * bw) : 0;
+  const ymax = Math.max(.12, Math.max(...kde) * 1.15, showH ? hMax * 1.1 : 0);
+  const sy = y => T + ph - y / ymax * ph;
+  const C = { curve: col('--curve'), kern: col('--kern'), dot: col('--dot'), hist: col('--hist'), line: col('--line'), mute: col('--mute'), panel: col('--panel') };
+
+  ctx.font = '12px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = C.mute; ctx.strokeStyle = C.line; ctx.lineWidth = 1;
+  for (let x = 0; x <= 10; x += 2) { ctx.beginPath(); ctx.moveTo(sx(x), T); ctx.lineTo(sx(x), T + ph); ctx.globalAlpha = .5; ctx.stroke(); ctx.globalAlpha = 1; ctx.fillText(x, sx(x), H - 10); }
+  ctx.beginPath(); ctx.moveTo(L, T + ph); ctx.lineTo(L + pw, T + ph); ctx.stroke();
+
+  if (showH) { ctx.fillStyle = C.hist; bins.forEach((c, i) => { if (c) { const y = sy(c / (n * bw)); ctx.fillRect(sx(X0 + i * bw) + 1, y, pw * bw / (X1 - X0) - 2, T + ph - y); } }); }
+
+  if (showK && n) {
+    ctx.strokeStyle = C.kern; ctx.fillStyle = C.kern; ctx.lineWidth = 1.5;
+    for (const p of pts) {
+      ctx.beginPath(); xs.forEach((x, i) => { const y = sy(k((x - p) / h) / (n * h)); i ? ctx.lineTo(sx(x), y) : ctx.moveTo(sx(x), y); });
+      ctx.stroke(); ctx.lineTo(sx(X1), sy(0)); ctx.lineTo(sx(X0), sy(0)); ctx.globalAlpha = .07; ctx.fill(); ctx.globalAlpha = 1;
+    }
+  }
+
+  if (n) {
+    ctx.beginPath(); xs.forEach((x, i) => i ? ctx.lineTo(sx(x), sy(kde[i])) : ctx.moveTo(sx(x), sy(kde[i])));
+    ctx.lineTo(sx(X1), sy(0)); ctx.lineTo(sx(X0), sy(0)); ctx.closePath(); ctx.fillStyle = C.curve; ctx.globalAlpha = .13; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.beginPath(); xs.forEach((x, i) => i ? ctx.lineTo(sx(x), sy(kde[i])) : ctx.moveTo(sx(x), sy(kde[i])));
+    ctx.strokeStyle = C.curve; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.stroke();
+  } else {
+    ctx.fillStyle = C.mute; ctx.font = '15px system-ui,sans-serif'; ctx.fillText('Click anywhere on the plot to add a data point', L + pw / 2, T + ph / 2);
+  }
+
+  pts.forEach(p => { ctx.beginPath(); ctx.arc(sx(p), T + ph, 5.5, 0, 7); ctx.fillStyle = C.dot; ctx.fill(); ctx.strokeStyle = C.panel; ctx.lineWidth = 2; ctx.stroke(); });
+
+  draw.sx = sx; draw.L = L; draw.pw = pw;
+  return { xs, kde, n };
+}
+
+function update() {
+  const { xs, kde, n } = draw();
+  const hs = silverman(), mx = Math.max(...kde);
+  let peaks = 0; for (let i = 1; i < kde.length - 1; i++) if (kde[i] > kde[i - 1] && kde[i] >= kde[i + 1] && kde[i] > .03 * mx) peaks++;
+  const dx = (X1 - X0) / NS, area = kde.reduce((a, b) => a + b, 0) * dx;
+  $('bwo').textContent = h.toFixed(2); $('sn').textContent = n; $('sh2').textContent = h.toFixed(2);
+  $('ss').textContent = isNaN(hs) ? '–' : hs.toFixed(2); $('sm').textContent = n ? peaks : '–'; $('sa').textContent = n ? area.toFixed(2) : '–';
+  let v;
+  if (n < 2) v = 'Add at least two points to see how the bumps combine.';
+  else { const r = h / hs;
+    v = r < .5 ? 'Undersmoothed: h is much smaller than Silverman’s suggestion, so the curve chases individual points and shows ' + peaks + ' peak' + (peaks === 1 ? '' : 's') + ' that may just be noise.'
+      : r > 2 ? 'Oversmoothed: h is much larger than Silverman’s suggestion, so real structure is washed out. The curve shows ' + peaks + ' peak' + (peaks === 1 ? '' : 's') + '.'
+      : 'Reasonable smoothing: h is within a factor of two of Silverman’s rule. The curve shows ' + peaks + ' peak' + (peaks === 1 ? '' : 's') + '.'; }
+  $('verdict').textContent = v;
+}
+
+function setH(v) { h = v; $('bw').value = v; update(); }
+$('bw').oninput = e => setH(+e.target.value);
+$('silv').onclick = () => { const s = silverman(); if (!isNaN(s)) setH(Math.min(3, Math.max(.05, +s.toFixed(2)))); };
+$('kern').onchange = e => { kernel = e.target.value; update(); };
+$('sk').onchange = $('sh').onchange = update;
+document.querySelectorAll('[data-p]').forEach(b => b.onclick = () => preset(b.dataset.p));
+
+function xOf(e) { const r = cv.getBoundingClientRect(); return { px: e.clientX - r.left, x: X0 + (e.clientX - r.left - draw.L) / draw.pw * (X1 - X0) }; }
+function nearest(px) { let bi = -1, bd = 12; pts.forEach((p, i) => { const d = Math.abs(draw.sx(p) - px); if (d < bd) { bd = d; bi = i; } }); return bi; }
+cv.addEventListener('pointerdown', e => {
+  const { px, x } = xOf(e); let i = nearest(px);
+  if (i < 0) { pts.push(clamp(x)); i = pts.length - 1; }
+  drag = i; cv.setPointerCapture(e.pointerId); update();
+});
+cv.addEventListener('pointermove', e => { if (drag >= 0) { pts[drag] = clamp(xOf(e).x); update(); } });
+cv.addEventListener('pointerup', () => drag = -1);
+cv.addEventListener('dblclick', e => { const i = nearest(xOf(e).px); if (i >= 0) { pts.splice(i, 1); update(); } });
+cv.addEventListener('contextmenu', e => { e.preventDefault(); const i = nearest(xOf(e).px); if (i >= 0) { pts.splice(i, 1); update(); } });
+
+addEventListener('resize', update);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', update);
+preset('two'); setH(0.8);
+</script>
+</body>
+</html>
