@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kernel methods, interactively</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=Fraunces:wght@600&display=swap">
+<style>
+:root{--bg:#f3f5f9;--panel:#fff;--ink:#14182b;--mute:#5b6280;--line:#d8dcea;--a:#4b5bd7;--b:#e0a100;--accent:#14182b;--accent-ink:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1220;--panel:#181c30;--ink:#e8eaf6;--mute:#9aa1c2;--line:#2c3252;--a:#7f8dff;--b:#f2bd2c;--accent:#e8eaf6;--accent-ink:#0f1220;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1220;--panel:#181c30;--ink:#e8eaf6;--mute:#9aa1c2;--line:#2c3252;--a:#7f8dff;--b:#f2bd2c;--accent:#e8eaf6;--accent-ink:#0f1220;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 18px 56px}
+h1{font:600 clamp(28px,5vw,42px)/1.1 Fraunces,Georgia,serif;margin:0 0 10px;letter-spacing:-.01em}
+h2{font:600 20px/1.3 Fraunces,Georgia,serif;margin:0 0 6px}
+p{margin:0 0 12px;max-width:68ch}
+.lead{color:var(--mute);font-size:17px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;margin-top:20px}
+.controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end}
+.ctl{display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--mute)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink);padding:7px 12px;font:inherit;font-size:14px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+input[type=range]{width:170px;accent-color:var(--a)}
+.val{color:var(--ink);font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:16px}
+@media (max-width:720px){.grid{grid-template-columns:1fr}}
+figure{margin:0}
+canvas{width:100%;aspect-ratio:1;border:1px solid var(--line);border-radius:8px;background:var(--bg);display:block;cursor:crosshair;touch-action:none}
+figcaption{font-size:14px;color:var(--mute);margin-top:8px}
+.stat{font-size:14px;color:var(--mute);margin-top:6px}
+.stat b{color:var(--ink)}
+.note{border-left:3px solid var(--a);padding:2px 0 2px 12px;color:var(--ink);margin-top:14px;font-size:15px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:baseline}
+.small{padding:5px 10px}
+.btn{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:8px;padding:7px 12px;font:inherit;font-size:14px;cursor:pointer}
+</style>
+</head>
+<body>
+<main>
+<h1>Kernel methods, interactively</h1>
+<p class="lead">A kernel is a similarity score between two points. Give a linear method that score instead of raw coordinates and it can draw curved boundaries, without ever computing the curved features itself.</p>
+
+<section class="panel">
+  <h2>1. Pick a kernel</h2>
+  <div class="controls">
+    <div class="ctl">Kernel
+      <div class="seg" id="kseg">
+        <button data-k="linear" aria-pressed="false">Linear</button>
+        <button data-k="poly" aria-pressed="false">Polynomial</button>
+        <button data-k="rbf" aria-pressed="true">RBF (Gaussian)</button>
+      </div>
+    </div>
+    <label class="ctl" id="gwrap">Width parameter γ: <span class="val" id="gv">3.0</span>
+      <input type="range" id="gamma" min="0.2" max="20" step="0.2" value="3"></label>
+    <label class="ctl" id="dwrap" hidden>Degree: <span class="val" id="dv">3</span>
+      <input type="range" id="deg" min="1" max="8" step="1" value="3"></label>
+  </div>
+  <div class="note" id="kdesc"></div>
+</section>
+
+<section class="panel">
+  <h2>2. See what “similar” means</h2>
+  <p>The map shows how similar every spot is to the marked point (the ring). Click or drag anywhere to move it.</p>
+  <div class="grid">
+    <figure>
+      <canvas id="sim" width="440" height="440" tabindex="0" aria-label="Similarity heat map. Click to move the anchor point."></canvas>
+      <figcaption><span class="dot" style="background:var(--a)"></span>high similarity &nbsp; <span class="dot" style="background:var(--b)"></span>negative similarity &nbsp; blank ≈ none</figcaption>
+    </figure>
+    <div>
+      <p>Formula for the current kernel:</p>
+      <p class="val" id="formula" style="font-size:18px"></p>
+      <p id="simtext" style="color:var(--mute)"></p>
+      <div class="stat">Similarity to anchor under cursor: <b id="simval">–</b></div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>3. Use it to classify</h2>
+  <p>Kernel ridge regression finds weights for every training point, then scores a new point by its similarity to all of them. Try the circles with a linear kernel, then switch to RBF.</p>
+  <div class="controls">
+    <div class="ctl">Dataset
+      <div class="seg" id="dseg">
+        <button data-d="circles" aria-pressed="true">Circles</button>
+        <button data-d="xor" aria-pressed="false">XOR</button>
+        <button data-d="moons" aria-pressed="false">Moons</button>
+        <button data-d="blobs" aria-pressed="false">Blobs</button>
+      </div>
+    </div>
+    <label class="ctl">Regularization λ: <span class="val" id="lv">0.10</span>
+      <input type="range" id="lam" min="-4" max="1" step="0.25" value="-1"></label>
+  </div>
+  <div class="grid">
+    <figure>
+      <canvas id="clf" width="440" height="440" tabindex="0" aria-label="Classifier. Click to add a training point of the selected class."></canvas>
+      <figcaption>Click to add points. Choose the class to add:
+        <span class="seg" id="cseg" style="vertical-align:middle">
+          <button data-c="1" aria-pressed="true" class="small"><span class="dot" style="background:var(--a)"></span>Blue</button>
+          <button data-c="-1" aria-pressed="false" class="small"><span class="dot" style="background:var(--b)"></span>Amber</button>
+        </span>
+        <button class="btn small" id="reset">Reset data</button>
+      </figcaption>
+    </figure>
+    <div>
+      <div class="stat">Training accuracy: <b id="acc">–</b></div>
+      <div class="stat">Training points: <b id="np">–</b></div>
+      <p style="margin-top:14px" id="clftext"></p>
+      <p style="color:var(--mute)">Under the hood: the model solves <b>(K + λI) α = y</b>, where K holds the kernel score between every pair of training points. Prediction is <b>f(x) = Σ αᵢ k(xᵢ, x)</b>. The shading shows f(x); the dark line is where f = 0.</p>
+      <p style="color:var(--mute)">Low γ or low degree gives smooth, simple boundaries. High values chase individual points and overfit. Raising λ calms that down.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<script>
+(function(){
+var COLA=[75,91,215], COLB=[224,161,0];
+var kernel="rbf", gamma=3, deg=3, lam=0.1, dataset="circles", cls=1, anchor=[0.25,0.2];
+var pts=[];
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+function rgb(h){h=h.replace('#','');return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)];}
+var seed=7;function rnd(){seed=(seed*16807)%2147483647;return (seed-1)/2147483646;}
+function gauss(){return Math.sqrt(-2*Math.log(rnd()+1e-9))*Math.cos(2*Math.PI*rnd());}
+
+function K(a,b){
+  if(kernel==="linear")return a[0]*b[0]+a[1]*b[1]+1;
+  if(kernel==="poly")return Math.pow(a[0]*b[0]+a[1]*b[1]+1,deg);
+  var dx=a[0]-b[0],dy=a[1]-b[1];return Math.exp(-gamma*(dx*dx+dy*dy));
+}
+function gen(){
+  seed=7;pts=[];var i,n=40,t,r;
+  if(dataset==="circles"){
+    for(i=0;i<n;i++){t=rnd()*6.283;r=0.3+0.07*gauss();pts.push([r*Math.cos(t),r*Math.sin(t),1]);}
+    for(i=0;i<n;i++){t=rnd()*6.283;r=0.7+0.07*gauss();pts.push([r*Math.cos(t),r*Math.sin(t),-1]);}
+  }else if(dataset==="xor"){
+    for(i=0;i<n*2;i++){var x=rnd()*1.8-.9,y=rnd()*1.8-.9;if(Math.abs(x)<.08||Math.abs(y)<.08){i--;continue;}pts.push([x,y,x*y>0?1:-1]);}
+  }else if(dataset==="moons"){
+    for(i=0;i<n;i++){t=rnd()*3.1416;pts.push([0.6*Math.cos(t)-0.25+0.06*gauss(),0.6*Math.sin(t)-0.15+0.06*gauss(),1]);}
+    for(i=0;i<n;i++){t=rnd()*3.1416;pts.push([0.25-0.6*Math.cos(t)+0.06*gauss(),0.15-0.6*Math.sin(t)+0.06*gauss(),-1]);}
+  }else{
+    for(i=0;i<n;i++)pts.push([-0.45+0.17*gauss(),-0.35+0.17*gauss(),1]);
+    for(i=0;i<n;i++)pts.push([0.45+0.17*gauss(),0.35+0.17*gauss(),-1]);
+  }
+}
+function solve(){
+  var n=pts.length,A=[],i,j,k;
+  for(i=0;i<n;i++){A.push([]);for(j=0;j<n;j++)A[i].push(K(pts[i],pts[j])+(i===j?lam:0));A[i].push(pts[i][2]);}
+  for(i=0;i<n;i++){
+    var p=i;for(j=i+1;j<n;j++)if(Math.abs(A[j][i])>Math.abs(A[p][i]))p=j;
+    var tmp=A[i];A[i]=A[p];A[p]=tmp;
+    var d=A[i][i]||1e-12;
+    for(j=i+1;j<n;j++){var f=A[j][i]/d;if(f===0)continue;for(k=i;k<=n;k++)A[j][k]-=f*A[i][k];}
+  }
+  var al=new Array(n);
+  for(i=n-1;i>=0;i--){var s=A[i][n];for(j=i+1;j<n;j++)s-=A[i][j]*al[j];al[i]=s/(A[i][i]||1e-12);}
+  return al;
+}
+function px(v,c){return (v+1)/2*c.width;}
+function dom(e,c){var r=c.getBoundingClientRect();return [((e.clientX-r.left)/r.width)*2-1,-(((e.clientY-r.top)/r.height)*2-1)];}
+function py(v,c){return (1-v)/2*c.height;}
+
+var G=80,off=document.createElement("canvas");off.width=G;off.height=G;var octx=off.getContext("2d");
+function heat(canvas,fn,pad){
+  var ctx=canvas.getContext("2d"),img=octx.createImageData(G,G),i,j,vals=[],mx=1e-9;
+  for(j=0;j<G;j++)for(i=0;i<G;i++){var v=fn((i+.5)/G*2-1,1-(j+.5)/G*2);vals.push(v);if(Math.abs(v)>mx)mx=Math.abs(v);}
+  var norm=pad?1:mx;
+  for(j=0;j<G;j++)for(i=0;i<G;i++){
+    var v=vals[j*G+i]/norm;v=Math.max(-1,Math.min(1,v));
+    var c=v>=0?COLA:COLB,a=Math.pow(Math.abs(v),.8)*(pad?0.5:0.85)*255,o=(j*G+i)*4;
+    img.data[o]=c[0];img.data[o+1]=c[1];img.data[o+2]=c[2];img.data[o+3]=a;
+  }
+  octx.putImageData(img,0,0);
+  ctx.clearRect(0,0,canvas.width,canvas.height);ctx.imageSmoothingEnabled=true;ctx.drawImage(off,0,0,canvas.width,canvas.height);
+  return vals;
+}
+function axes(ctx,c){ctx.strokeStyle=css("--line");ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(c.width/2,0);ctx.lineTo(c.width/2,c.height);ctx.moveTo(0,c.height/2);ctx.lineTo(c.width,c.height/2);ctx.stroke();}
+
+var sim=document.getElementById("sim"),clf=document.getElementById("clf");
+function drawSim(){
+  var ctx=sim.getContext("2d");
+  heat(sim,function(x,y){return K(anchor,[x,y]);},false);
+  axes(ctx,sim);
+  var ax=px(anchor[0],sim),ay=py(anchor[1],sim);
+  ctx.lineWidth=3;ctx.strokeStyle=css("--ink");ctx.fillStyle=css("--panel");
+  ctx.beginPath();ctx.arc(ax,ay,9,0,6.283);ctx.fill();ctx.stroke();
+}
+function drawClf(){
+  var al=solve(),ctx=clf.getContext("2d"),n=pts.length,i;
+  var vals=heat(clf,function(x,y){var s=0,p=[x,y];for(var k=0;k<n;k++)s+=al[k]*K(pts[k],p);return s;},true);
+  axes(ctx,clf);
+  // decision boundary: mark cells where sign flips
+  ctx.fillStyle=css("--ink");var cw=clf.width/G;
+  for(var j=0;j<G-1;j++)for(i=0;i<G-1;i++){
+    var v=vals[j*G+i]>0;
+    if(v!==(vals[j*G+i+1]>0)||v!==(vals[(j+1)*G+i]>0))ctx.fillRect(i*cw,j*cw,cw*1.1,cw*1.1);
+  }
+  var ok=0;
+  for(i=0;i<n;i++){
+    var p=pts[i],s=0;for(var k=0;k<n;k++)s+=al[k]*K(pts[k],p);
+    if((s>0?1:-1)===p[2])ok++;
+    var c=p[2]>0?COLA:COLB;
+    ctx.beginPath();ctx.arc(px(p[0],clf),py(p[1],clf),5.5,0,6.283);
+    ctx.fillStyle="rgb("+c+")";ctx.fill();ctx.lineWidth=1.5;ctx.strokeStyle=css("--panel");ctx.stroke();
+  }
+  document.getElementById("acc").textContent=n?Math.round(ok/n*100)+"%":"–";
+  document.getElementById("np").textContent=n;
+  var txt;
+  if(kernel==="linear")txt="A linear kernel can only draw a straight line. On circles and XOR it has no good answer, which is the problem kernels exist to solve.";
+  else if(kernel==="poly")txt="A polynomial kernel of degree "+deg+" implicitly uses every product of coordinates up to that degree, so boundaries can bend like polynomial curves.";
+  else txt="The RBF kernel lets each training point cast a bump of influence. γ = "+gamma.toFixed(1)+" sets how far each bump reaches; the boundary follows wherever the bumps of the two classes balance out.";
+  document.getElementById("clftext").textContent=txt;
+}
+function text(){
+  var d={linear:"Linear: the plain dot product (plus a constant for an offset). Similarity grows in one direction, so the best any classifier can do is a straight line.",
+         poly:"Polynomial: raises the dot product to a power. Equivalent to working with all products of the coordinates up to that degree, without listing them.",
+         rbf:"RBF: similarity falls off smoothly with distance. It corresponds to infinitely many features, yet each score is one cheap exponential."};
+  document.getElementById("kdesc").textContent=d[kernel];
+  document.getElementById("formula").textContent=kernel==="linear"?"k(x, z) = x·z + 1":kernel==="poly"?"k(x, z) = (x·z + 1)^"+deg:"k(x, z) = exp(−γ‖x − z‖²),  γ = "+gamma.toFixed(1);
+  document.getElementById("simtext").textContent=kernel==="rbf"?"Larger γ shrinks the bump, so only very close points count as similar. Smaller γ makes the whole plane look alike.":kernel==="poly"?"Notice similarity can be negative on the far side of the origin and grows quickly far from the center.":"Similarity is a flat ramp: it keeps increasing in one direction and never levels off, so distance means nothing here.";
+  document.getElementById("gwrap").hidden=kernel!=="rbf";
+  document.getElementById("dwrap").hidden=kernel!=="poly";
+}
+function all(){text();drawSim();drawClf();}
+
+function seg(id,attr,fn){
+  var el=document.getElementById(id);
+  el.addEventListener("click",function(e){var b=e.target.closest("button");if(!b)return;
+    Array.prototype.forEach.call(el.children,function(x){x.setAttribute("aria-pressed",x===b?"true":"false");});
+    fn(b.getAttribute(attr));});
+}
+seg("kseg","data-k",function(v){kernel=v;all();});
+seg("dseg","data-d",function(v){dataset=v;gen();all();});
+seg("cseg","data-c",function(v){cls=+v;});
+document.getElementById("gamma").addEventListener("input",function(e){gamma=+e.target.value;document.getElementById("gv").textContent=gamma.toFixed(1);all();});
+document.getElementById("deg").addEventListener("input",function(e){deg=+e.target.value;document.getElementById("dv").textContent=deg;all();});
+document.getElementById("lam").addEventListener("input",function(e){lam=Math.pow(10,+e.target.value);document.getElementById("lv").textContent=lam<0.01?lam.toExponential(0):lam.toFixed(2);drawClf();});
+document.getElementById("reset").addEventListener("click",function(){gen();drawClf();});
+
+var drag=false;
+sim.addEventListener("pointerdown",function(e){drag=true;sim.setPointerCapture(e.pointerId);anchor=dom(e,sim);drawSim();});
+sim.addEventListener("pointermove",function(e){var p=dom(e,sim);
+  if(drag){anchor=p;drawSim();}
+  document.getElementById("simval").textContent=K(anchor,p).toFixed(3);});
+sim.addEventListener("pointerup",function(){drag=false;});
+clf.addEventListener("pointerdown",function(e){var p=dom(e,clf);pts.push([p[0],p[1],cls]);drawClf();});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",all);
+
+gen();all();
+})();
+</script>
+</body>
+</html>
