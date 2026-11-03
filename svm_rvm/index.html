@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PML §17.3.5–17.4 · SVM extras & RVM</title>
+<style>
+:root{--bg:#fafaf7;--fg:#1d1d1b;--mut:#6b6b66;--card:#fff;--line:#dcdcd4;--c1:#2b6cb0;--c2:#d9731f;--c3:#2f855a;--grid:#e8e8e2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17181a;--fg:#ecebe6;--mut:#9a9a93;--card:#222426;--line:#3a3c3e;--c1:#63a4ee;--c2:#f0953f;--c3:#5cc58c;--grid:#2e3032;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17181a;--fg:#ecebe6;--mut:#9a9a93;--card:#222426;--line:#3a3c3e;--c1:#63a4ee;--c2:#f0953f;--c3:#5cc58c;--grid:#2e3032;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:16px}
+h1{font-size:1.35rem;margin:.2em 0}h2{font-size:1.1rem;margin:.2em 0 .4em}
+.sub{color:var(--mut);margin:0 0 12px;font-size:.92rem}
+nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+nav button{border:1px solid var(--line);background:var(--card);color:var(--fg);padding:7px 11px;border-radius:8px;cursor:pointer;font:inherit;font-size:.88rem}
+nav button.on{background:var(--c1);color:#fff;border-color:var(--c1)}
+section{display:none}section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.eq{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.88rem;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0;overflow-x:auto;white-space:pre}
+canvas{width:100%;height:auto;display:block;border-radius:8px}
+.row{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin:8px 0;font-size:.9rem}
+.row label{display:flex;align-items:center;gap:6px}
+input[type=range]{width:170px}
+.out{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;color:var(--mut)}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--fg);padding:5px 10px;border-radius:8px;cursor:pointer;font:inherit;font-size:.88rem}
+.try{border-left:3px solid var(--c3);padding-left:10px;color:var(--mut);font-size:.9rem;margin:8px 0}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
+.tbl{overflow-x:auto}
+</style></head><body><main>
+<h1>Murphy PML1 · Ch. 17 · SVM extras &amp; sparse vector machines</h1>
+<p class="sub">Covers §17.3.5–17.3.8 (Platt scaling, SVM vs logistic regression, multiclass, choosing C) and §17.4 (RVM). Each tab = key idea + something to poke.</p>
+<nav id="nav"></nav>
+
+<!-- 17.3.5 -->
+<section id="s0"><div class="card">
+<h2>17.3.5 · Turning SVM scores into probabilities</h2>
+<p>An SVM outputs a raw score f(x) = wᵀx + b (or its kernel version), not a probability. <b>Platt scaling</b> fits a 1-D logistic regression on top of that score:</p>
+<div class="eq">p(y=1 | x) = σ( A·f(x) + B )</div>
+<p>A and B are fit by minimising the NLL. Crucially they should be fit on <b>held-out</b> data (or cross-validated scores): on the training set the SVM pushes points to f ≈ ±1 or beyond, so the scores look over-confident and the fit is biased. Below, the dots are held-out scores (blue = y=+1, orange = y=−1); dashed lines are the margins f=±1.</p>
+<canvas id="c0"></canvas>
+<div class="row">
+<label>A <input type="range" id="pA" min="-1" max="5" step="0.05" value="1"><span id="vA" class="out"></span></label>
+<label>B <input type="range" id="pB" min="-3" max="3" step="0.05" value="0"><span id="vB" class="out"></span></label>
+<button class="btn" id="pFit">Fit A,B (min NLL)</button>
+<button class="btn" id="pNew">New held-out sample</button></div>
+<div class="out" id="pOut"></div>
+<div class="try">Try: set A=1, B=0 (just a sigmoid on raw f) and note the NLL. Press Fit. B≠0 shifts the 50% point away from f=0 (corrects class imbalance / bias), A rescales how fast confidence grows with margin.</div>
+</div></section>
+
+<!-- 17.3.6 -->
+<section id="s1"><div class="card">
+<h2>17.3.6 · SVM vs logistic regression: it’s the loss</h2>
+<p>With labels ỹ ∈ {−1,+1} and margin m = ỹ·f(x), both are L2-regularised linear (or kernel) models; only the loss differs:</p>
+<div class="eq">hinge:    ℓ(m) = max(0, 1 − m)         (SVM, with C = 1/λ)
+logistic: ℓ(m) = log₂(1 + e^(−m))      (logistic regression)
+0-1:      ℓ(m) = 1[m < 0]               (what we actually care about)</div>
+<p>Both are convex upper bounds on 0-1 loss. The key difference: the hinge is <b>exactly zero</b> for m ≥ 1, so well-classified points have zero gradient → the solution depends only on <b>support vectors</b> (sparse in the dual). Logistic loss is never exactly zero, so every point has a (tiny) say and the dual is dense — but it gives calibrated probabilities for free.</p>
+<canvas id="c1"></canvas>
+<div class="row">
+<label><input type="checkbox" id="l01" checked><span class="sw" style="background:var(--mut)"></span>0-1</label>
+<label><input type="checkbox" id="lH" checked><span class="sw" style="background:var(--c1)"></span>hinge</label>
+<label><input type="checkbox" id="lL" checked><span class="sw" style="background:var(--c2)"></span>logistic</label>
+<label>margin m <input type="range" id="lm" min="-3" max="3" step="0.05" value="0.5"><span id="lmv" class="out"></span></label></div>
+<div class="out" id="lOut"></div>
+<div class="try">Try: slide m beyond 1. Hinge value and gradient both hit 0 (that point is not a support vector); logistic still has a small non-zero gradient. Slide m below 0 and both penalise roughly linearly (robust to outliers, unlike squared/exponential loss).</div>
+</div></section>
+
+<!-- 17.3.7 -->
+<section id="s2"><div class="card">
+<h2>17.3.7 · Multiclass SVMs</h2>
+<p>SVMs are inherently binary, so we combine binary classifiers. <b>One-vs-rest (OvR)</b> trains C classifiers f_c (class c vs the rest) and either takes the sign pattern or <code>argmax f_c</code>. <b>One-vs-one (OvO)</b> trains C(C−1)/2 pairwise classifiers and takes a majority vote. Problems with OvR: <b>ambiguous regions</b> (none or several f_c &gt; 0), <b>class imbalance</b> (each “rest” class is huge), and the f_c are not calibrated against each other, so argmax can be skewed.</p>
+<canvas id="c2"></canvas>
+<div class="row">
+<label><input type="radio" name="mm" value="vote" checked> OvR, sign rule</label>
+<label><input type="radio" name="mm" value="arg"> OvR, argmax f_c</label>
+<label><input type="radio" name="mm" value="ovo"> OvO, voting</label></div>
+<div class="row">
+<label>offset t <input type="range" id="mt" min="-1" max="1.5" step="0.05" value="0.6"><span id="mtv" class="out"></span></label>
+<label>score scale of class 3 <input type="range" id="ms" min="0.2" max="3" step="0.05" value="1"><span id="msv" class="out"></span></label></div>
+<div class="out"><span class="sw" style="background:var(--c1)"></span>class 1 <span class="sw" style="background:var(--c2)"></span>class 2 <span class="sw" style="background:var(--c3)"></span>class 3 <span class="sw" style="background:#888"></span>no class positive <span class="sw" style="background:#444"></span>several positive</div>
+<div class="try">Setup: f_c(x) = s_c·(u_c·x − t), with u_c at 90°, 210°, 330°. In sign-rule mode, raising t opens an “unclaimed” triangle in the middle and lowering it creates overlaps. Argmax removes all ambiguity, but then shrink/grow class 3’s scale: its region swells or collapses even though the hyperplane f_3=0 has not moved. OvO has no ambiguity here but needs C(C−1)/2 models.</div>
+</div></section>
+
+<!-- 17.3.8 -->
+<section id="s3"><div class="card">
+<h2>17.3.8 · Choosing C (and the kernel width)</h2>
+<p>In the soft-margin SVM, <b>C = 1/λ</b> trades margin width against slack: <i>small C</i> = strong regularisation (wide margin, many support vectors, underfit); <i>large C</i> = weak regularisation (tight fit, wiggly boundary, overfit). In the dual, 0 ≤ αᵢ ≤ C. C and the RBF width γ (κ = exp(−γ‖x−x′‖²)) are normally chosen by cross-validation over a grid. Here a small separate test set plays the role of validation data. (The solver is a simplified SMO on the dual.)</p>
+<canvas id="c3"></canvas>
+<div class="row">
+<label>log₁₀ C <input type="range" id="kC" min="-2" max="3" step="0.1" value="0"><span id="kCv" class="out"></span></label>
+<label>γ <input type="range" id="kG" min="0.05" max="4" step="0.05" value="0.5"><span id="kGv" class="out"></span></label></div>
+<div class="out" id="kOut"></div>
+<canvas id="c3b"></canvas>
+<div class="try">Try: sweep C from 0.01 up to 1000 and watch the support vectors (ringed points) shrink while the boundary starts to chase individual noisy points. The lower plot sweeps C at the current γ: training error keeps falling, held-out error is U-shaped — pick the bottom. Then change γ: the best C moves too, which is why you grid-search both.</div>
+</div></section>
+
+<!-- 17.4 -->
+<section id="s4"><div class="card">
+<h2>17.4 · Sparse vector machines: the RVM</h2>
+<p>SVMs are sparse but not probabilistic in a clean way. The <b>relevance vector machine</b> takes a generalised linear model on kernel features φ(x) = [κ(x,x₁),…,κ(x,x_N)] and gives each weight its own Gaussian prior (<b>automatic relevance determination</b>):</p>
+<div class="eq">p(y|x,w) = N(y | wᵀφ(x), 1/β),   p(wⱼ) = N(0, 1/αⱼ)
+Fit αⱼ, β by maximising the marginal likelihood (evidence):
+  Σ = (diag(α) + βΦᵀΦ)⁻¹,  μ = βΣΦᵀy
+  γⱼ = 1 − αⱼΣⱼⱼ,  αⱼ ← γⱼ/μⱼ²,  β ← (N − Σγⱼ)/‖y − Φμ‖²</div>
+<p>Many αⱼ → ∞, which pins wⱼ=0 and prunes that basis function. Survivors are the <b>relevance vectors</b>. Unlike SVM support vectors they tend <i>not</i> to sit near the decision boundary, you get predictive variance, and the model is usually much sparser — at the cost of a non-convex objective and O(N³) training. Compare with ridge regression on the same kernel features: all N weights stay non-zero.</p>
+<canvas id="c4"></canvas>
+<div class="row">
+<label>iterations <input type="range" id="rI" min="0" max="300" step="1" value="100"><span id="rIv" class="out"></span></label>
+<label>kernel width ℓ <input type="range" id="rL" min="0.5" max="3" step="0.05" value="1.5"><span id="rLv" class="out"></span></label></div>
+<div class="row">
+<label>data noise σ <input type="range" id="rN" min="0.02" max="0.3" step="0.01" value="0.1"><span id="rNv" class="out"></span></label>
+<label>ridge log₁₀λ <input type="range" id="rR" min="-4" max="1" step="0.1" value="-1.3"><span id="rRv" class="out"></span></label>
+<button class="btn" id="rNew">New data</button></div>
+<div class="out" id="rOut"></div>
+<div class="out"><span class="sw" style="background:var(--c1)"></span>RVM mean ±2 std &nbsp;<span class="sw" style="background:var(--c2)"></span>ridge (dense) &nbsp;<span class="sw" style="background:var(--c3)"></span>relevance vectors &nbsp;<span class="sw" style="background:#888"></span>true sinc</div>
+<div class="try">Try: drag iterations from 0 up and watch basis functions get pruned (the count drops quickly), with the model learning its own noise level (compare estimated σ with the slider). Raise data noise: fewer relevance vectors and a wider band — the evidence automatically penalises complexity.</div>
+</div></section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const sig=z=>1/(1+Math.exp(-z));
+function rng(s){return()=>{s=(s*1664525+1013904223)%4294967296;return s/4294967296}}
+function gauss(r){return Math.sqrt(-2*Math.log(r()+1e-12))*Math.cos(2*Math.PI*r())}
+function setup(id,W,H){const c=$(id);c.width=W*2;c.height=H*2;const g=c.getContext('2d');g.setTransform(2,0,0,2,0,0);g.clearRect(0,0,W,H);return g}
+function frame(g,W,H,x0,x1,y0,y1,xl,yl){const p={l:38,r:10,t:10,b:26};const X=x=>p.l+(x-x0)/(x1-x0)*(W-p.l-p.r),Y=y=>H-p.b-(y-y0)/(y1-y0)*(H-p.t-p.b);
+g.fillStyle=css('--card');g.fillRect(0,0,W,H);g.strokeStyle=css('--grid');g.lineWidth=1;g.fillStyle=css('--mut');g.font='11px system-ui';
+const nx=Math.min(8,Math.round(x1-x0)),ny=4;
+for(let i=0;i<=nx;i++){const v=x0+(x1-x0)*i/nx;g.beginPath();g.moveTo(X(v),p.t);g.lineTo(X(v),H-p.b);g.stroke();g.textAlign='center';g.fillText((+v.toFixed(1))+'',X(v),H-10)}
+for(let i=0;i<=ny;i++){const v=y0+(y1-y0)*i/ny;g.beginPath();g.moveTo(p.l,Y(v));g.lineTo(W-p.r,Y(v));g.stroke();g.textAlign='right';g.fillText((+v.toFixed(2))+'',p.l-4,Y(v)+4)}
+return{X,Y}}
+function line(g,pts,col,w,dash){g.strokeStyle=col;g.lineWidth=w||2;g.setLineDash(dash||[]);g.beginPath();pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));g.stroke();g.setLineDash([])}
+function dot(g,x,y,r,col){g.fillStyle=col;g.beginPath();g.arc(x,y,r,0,7);g.fill()}
+function ring(g,x,y,r,col){g.strokeStyle=col;g.lineWidth=2;g.beginPath();g.arc(x,y,r,0,7);g.stroke()}
+
+/* tabs */
+const names=['17.3.5 Platt','17.3.6 vs LogReg','17.3.7 Multiclass','17.3.8 Choosing C','17.4 RVM'];
+names.forEach((n,i)=>{const b=document.createElement('button');b.textContent=n;b.onclick=()=>show(i);$('nav').appendChild(b)});
+function show(i){[...$('nav').children].forEach((b,j)=>b.classList.toggle('on',i==j));for(let j=0;j<5;j++)$('s'+j).classList.toggle('on',i==j);
+try{location.hash='t'+i}catch(e){}[d0,d1,d2,d3,d4][i]()}
+
+/* 0: Platt */
+const P={f:[],t:[],j:[]};
+function genP(){const r=rng((Date.now()%99999)+7);P.f=[];P.t=[];P.j=[];for(let i=0;i<40;i++){const y=r()<.55?1:-1;P.f.push(y*0.9+gauss(r)*1.1);P.t.push(y>0?1:0);P.j.push((r()-.5)*.06)}}
+function nll(A,B){let s=0;P.f.forEach((f,i)=>{const p=Math.min(1-1e-9,Math.max(1e-9,sig(A*f+B)));s-=P.t[i]?Math.log(p):Math.log(1-p)});return s}
+function d0(){const W=640,H=320,g=setup('c0',W,H),{X,Y}=frame(g,W,H,-4,4,0,1);
+const A=+$('pA').value,B=+$('pB').value;$('vA').textContent=A.toFixed(2);$('vB').textContent=B.toFixed(2);
+[-1,1].forEach(m=>line(g,[[X(m),Y(0)],[X(m),Y(1)]],css('--mut'),1,[4,4]));
+const pts=[];for(let i=0;i<=100;i++){const f=-4+8*i/100;pts.push([X(f),Y(sig(A*f+B))])}
+line(g,pts,css('--fg'),2.5);
+P.f.forEach((f,i)=>dot(g,X(f),Y(P.t[i]?0.97:0.03+P.j[i]*0),4,P.t[i]?css('--c1'):css('--c2')));
+g.fillStyle=css('--mut');g.textAlign='left';g.fillText('f(x): raw SVM score →   (y-axis: P(y=1|x))',48,22);
+$('pOut').textContent=`NLL = ${nll(A,B).toFixed(2)}   P(y=1|f=−1) = ${sig(-A+B).toFixed(2)}   P(y=1|f=0) = ${sig(B).toFixed(2)}   P(y=1|f=+1) = ${sig(A+B).toFixed(2)}`}
+['pA','pB'].forEach(i=>$(i).oninput=d0);
+$('pNew').onclick=()=>{genP();d0()};
+$('pFit').onclick=()=>{let A=1,B=0;const n=P.f.length;for(let k=0;k<4000;k++){let gA=0,gB=0;P.f.forEach((f,i)=>{const e=sig(A*f+B)-P.t[i];gA+=e*f;gB+=e});A-=0.2*gA/n;B-=0.2*gB/n}
+$('pA').value=A;$('pB').value=B;d0()};
+
+/* 1: losses */
+function d1(){const W=640,H=320,g=setup('c1',W,H),{X,Y}=frame(g,W,H,-3,3,0,4);
+const f={z:m=>m<0?1:0,h:m=>Math.max(0,1-m),l:m=>Math.log(1+Math.exp(-m))/Math.LN2};
+const sh=[['l01','z','--mut'],['lH','h','--c1'],['lL','l','--c2']];
+sh.forEach(([cb,k,col])=>{if(!$(cb).checked)return;const pts=[];for(let i=0;i<=300;i++){const m=-3+6*i/300;pts.push([X(m),Y(Math.min(4,f[k](m)))])}
+if(k=='z'){line(g,pts.filter(p=>p[0]<X(0)),css(col),2,[5,3]);line(g,pts.filter(p=>p[0]>=X(0)),css(col),2,[5,3])}else line(g,pts,css(col),2.5)});
+const m=+$('lm').value;$('lmv').textContent=m.toFixed(2);
+line(g,[[X(m),Y(0)],[X(m),Y(4)]],css('--fg'),1,[2,3]);
+if($('lH').checked)dot(g,X(m),Y(f.h(m)),5,css('--c1'));if($('lL').checked)dot(g,X(m),Y(f.l(m)),5,css('--c2'));
+g.fillStyle=css('--mut');g.textAlign='left';g.fillText('margin m = ỹ·f(x)  →  loss',48,22);
+const gh=m<1?-1:0,gl=-sig(-m)/Math.LN2;
+$('lOut').textContent=`hinge: loss ${f.h(m).toFixed(3)}, dℓ/dm = ${gh}   |   logistic: loss ${f.l(m).toFixed(3)}, dℓ/dm = ${gl.toFixed(3)}   ${m>=1?'→ not a support vector (hinge ignores it)':''}`}
+['l01','lH','lL','lm'].forEach(i=>$(i).oninput=d1);
+
+/* 2: multiclass */
+function d2(){const W=360,H=360,g=setup('c2',W,H);const t=+$('mt').value,s3=+$('ms').value,mode=document.querySelector('input[name=mm]:checked').value;
+$('mtv').textContent=t.toFixed(2);$('msv').textContent=s3.toFixed(2);
+const u=[90,210,330].map(a=>[Math.cos(a*Math.PI/180),Math.sin(a*Math.PI/180)]),sc=[1,1,s3];
+const col=['rgb(43,108,176)','rgb(217,115,31)','rgb(47,133,90)'],R=3,S=4;
+for(let py=0;py<H;py+=S)for(let px=0;px<W;px+=S){const x=(px+S/2)/W*2*R-R,y=R-(py+S/2)/H*2*R;let c=-1,gray=null;
+if(mode=='ovo'){const v=[0,0,0];for(let a=0;a<3;a++)for(let b=a+1;b<3;b++){(u[a][0]-u[b][0])*x+(u[a][1]-u[b][1])*y>0?v[a]++:v[b]++}c=v.indexOf(Math.max(...v))}
+else{const fv=u.map((q,i)=>sc[i]*(q[0]*x+q[1]*y-t));if(mode=='arg')c=fv.indexOf(Math.max(...fv));else{const pos=fv.map((v,i)=>v>0?i:-1).filter(i=>i>=0);if(pos.length==1)c=pos[0];else gray=pos.length?'#444':'#888'}}
+g.globalAlpha=.55;g.fillStyle=gray||col[c];g.fillRect(px,py,S,S)}
+g.globalAlpha=1;
+if(mode!='ovo')u.forEach((q,i)=>{const nx=q[0],ny=q[1],o=t,d=[-ny,nx];const p=(k)=>[(nx*o+d[0]*k+R)/(2*R)*W,(R-(ny*o+d[1]*k))/(2*R)*H];line(g,[p(-6),p(6)],col[i],2,[6,4])});
+g.strokeStyle=css('--line');g.strokeRect(0,0,W,H);
+$('c2').style.maxWidth='420px'}
+['mt','ms'].forEach(i=>$(i).oninput=d2);document.querySelectorAll('input[name=mm]').forEach(e=>e.onchange=d2);
+
+/* 3: SVM with SMO */
+function mkSet(n,seed){const r=rng(seed),X=[],y=[];const cen=[[1.2,1.2,1],[-1.2,-1.2,1],[1.2,-1.2,-1],[-1.2,1.2,-1]];
+for(let i=0;i<n;i++){const c=cen[Math.floor(r()*4)];X.push([c[0]+gauss(r)*.85,c[1]+gauss(r)*.85]);y.push(c[2])}return{X,y}}
+const TR=mkSet(60,11),TE=mkSet(300,99);
+const kf=(a,b,gm)=>Math.exp(-gm*((a[0]-b[0])**2+(a[1]-b[1])**2));
+function smo(C,gm){const X=TR.X,y=TR.y,n=X.length,r=rng(5);const K=X.map(a=>X.map(b=>kf(a,b,gm)));const a=new Array(n).fill(0);let b=0;
+const F=i=>{let s=b;for(let k=0;k<n;k++)if(a[k])s+=a[k]*y[k]*K[k][i];return s};let passes=0,it=0;
+while(passes<5&&it<150){let ch=0;for(let i=0;i<n;i++){const Ei=F(i)-y[i];
+if((y[i]*Ei<-1e-3&&a[i]<C)||(y[i]*Ei>1e-3&&a[i]>0)){let j=Math.floor(r()*(n-1));if(j>=i)j++;const Ej=F(j)-y[j],ai=a[i],aj=a[j];let L,H;
+if(y[i]!=y[j]){L=Math.max(0,aj-ai);H=Math.min(C,C+aj-ai)}else{L=Math.max(0,ai+aj-C);H=Math.min(C,ai+aj)}if(L==H)continue;
+const eta=2*K[i][j]-K[i][i]-K[j][j];if(eta>=0)continue;let nj=aj-y[j]*(Ei-Ej)/eta;nj=Math.min(H,Math.max(L,nj));if(Math.abs(nj-aj)<1e-5)continue;
+a[j]=nj;a[i]=ai+y[i]*y[j]*(aj-nj);
+const b1=b-Ei-y[i]*(a[i]-ai)*K[i][i]-y[j]*(nj-aj)*K[i][j],b2=b-Ej-y[i]*(a[i]-ai)*K[i][j]-y[j]*(nj-aj)*K[j][j];
+b=(a[i]>0&&a[i]<C)?b1:(nj>0&&nj<C)?b2:(b1+b2)/2;ch++}}passes=ch?0:passes+1;it++}
+const pred=p=>{let s=b;for(let k=0;k<n;k++)if(a[k]>1e-6)s+=a[k]*y[k]*kf(X[k],p,gm);return s};return{a,pred}}
+const errOf=(S,m)=>S.X.filter((p,i)=>m.pred(p)*S.y[i]<=0).length/S.X.length;
+function d3(){const C=Math.pow(10,+$('kC').value),gm=+$('kG').value;$('kCv').textContent=C.toPrecision(3);$('kGv').textContent=gm.toFixed(2);
+const W=640,H=400,g=setup('c3',W,H),R=3.2,m=smo(C,gm);
+const S=8;for(let py=0;py<H;py+=S)for(let px=0;px<W;px+=S){const x=(px+S/2)/W*2*R*(W/H)-R*(W/H),y=R-(py+S/2)/H*2*R;const f=m.pred([x,y]);
+g.fillStyle=f>0?'rgb(43,108,176)':'rgb(217,115,31)';g.globalAlpha=Math.abs(f)<1?.12:.3;g.fillRect(px,py,S,S)}g.globalAlpha=1;
+const tx=x=>(x+R*(W/H))/(2*R*(W/H))*W,ty=y=>(R-y)/(2*R)*H;
+TR.X.forEach((p,i)=>{dot(g,tx(p[0]),ty(p[1]),4,TR.y[i]>0?css('--c1'):css('--c2'));if(m.a[i]>1e-6)ring(g,tx(p[0]),ty(p[1]),8,css('--fg'))});
+const nsv=m.a.filter(v=>v>1e-6).length;$('kOut').textContent=`C=${C.toPrecision(3)}  support vectors: ${nsv}/60   train err ${(errOf(TR,m)*100).toFixed(1)}%   held-out err ${(errOf(TE,m)*100).toFixed(1)}%   (ringed = SV; lighter band = inside margin)`;
+const Cs=[-2,-1.5,-1,-.5,0,.5,1,1.5,2,2.5,3],tr=[],te=[];Cs.forEach(e=>{const mm=smo(Math.pow(10,e),gm);tr.push(errOf(TR,mm));te.push(errOf(TE,mm))});
+const W2=640,H2=220,g2=setup('c3b',W2,H2),{X,Y}=frame(g2,W2,H2,-2,3,0,.5);
+line(g2,Cs.map((e,i)=>[X(e),Y(Math.min(.5,tr[i]))]),css('--c1'),2.5);line(g2,Cs.map((e,i)=>[X(e),Y(Math.min(.5,te[i]))]),css('--c2'),2.5);
+const ce=+$('kC').value;line(g2,[[X(ce),Y(0)],[X(ce),Y(.5)]],css('--fg'),1,[3,3]);
+g2.fillStyle=css('--c1');g2.textAlign='left';g2.fillText('train error',48,24);g2.fillStyle=css('--c2');g2.fillText('held-out error',48,38);g2.fillStyle=css('--mut');g2.fillText('log₁₀ C →',W2-70,H2-10)}
+['kC','kG'].forEach(i=>$(i).oninput=d3);
+
+/* 4: RVM */
+const D={z:[]};
+function genR(){const r=rng((Date.now()%99999)+3);D.x=[];D.z=[];for(let i=0;i<30;i++){D.x.push(-6+12*r());D.z.push(gauss(r))}}
+const sinc=x=>Math.abs(x)<1e-6?1:Math.sin(x)/x;
+function inv(M){const n=M.length,A=M.map((r,i)=>[...r,...Array.from({length:n},(_,j)=>+(i==j))]);
+for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(A[r][c])>Math.abs(A[p][c]))p=r;[A[c],A[p]]=[A[p],A[c]];const d=A[c][c]||1e-12;for(let j=0;j<2*n;j++)A[c][j]/=d;
+for(let r=0;r<n;r++)if(r!=c){const f=A[r][c];if(f)for(let j=0;j<2*n;j++)A[r][j]-=f*A[c][j]}}return A.map(r=>r.slice(n))}
+function post(Phi,y,act,al,beta){const N=y.length,M=act.length,A=Array.from({length:M},(_,i)=>Array.from({length:M},(_,j)=>{let s=0;for(let n=0;n<N;n++)s+=Phi[n][act[i]]*Phi[n][act[j]];return beta*s+(i==j?al[i]:0)}));
+const S=inv(A),mu=new Array(M).fill(0);for(let i=0;i<M;i++){let t=0;for(let j=0;j<M;j++){let s=0;for(let n=0;n<N;n++)s+=Phi[n][act[j]]*y[n];t+=S[i][j]*s}mu[i]=beta*t}return{S,mu}}
+function rvm(Phi,y,iters){const N=y.length;let act=[...Array(N).keys()],al=act.map(()=>1);const my=y.reduce((a,b)=>a+b)/N,vy=y.reduce((a,b)=>a+(b-my)**2,0)/N;let beta=10/vy;
+for(let k=0;k<iters&&act.length;k++){const{S,mu}=post(Phi,y,act,al,beta);let sg=0;const g=act.map((_,i)=>1-al[i]*S[i][i]);g.forEach(v=>sg+=v);
+let e=0;for(let n=0;n<N;n++){let p=0;act.forEach((a,i)=>p+=Phi[n][a]*mu[i]);e+=(y[n]-p)**2}
+beta=Math.min(1e5,Math.max(1,(N-sg)/Math.max(e,1e-9)));al=al.map((_,i)=>g[i]/(mu[i]*mu[i]+1e-12));
+const keep=al.map((v,i)=>v<1e9?i:-1).filter(i=>i>=0);act=keep.map(i=>act[i]);al=keep.map(i=>al[i])}
+if(!act.length)return{act,al,beta,mu:[],S:[]};const p=post(Phi,y,act,al,beta);return{act,al,beta,mu:p.mu,S:p.S}}
+function d4(){const it=+$('rI').value,l=+$('rL').value,sg=+$('rN').value,lam=Math.pow(10,+$('rR').value);
+$('rIv').textContent=it;$('rLv').textContent=l.toFixed(2);$('rNv').textContent=sg.toFixed(2);$('rRv').textContent=lam.toPrecision(2);
+const x=D.x,y=x.map((v,i)=>sinc(v)+sg*D.z[i]),N=x.length,k=(a,b)=>Math.exp(-(a-b)**2/(2*l*l));
+const Phi=x.map(a=>x.map(b=>k(a,b)));const m=rvm(Phi,y,it);
+const A=x.map((_,i)=>x.map((_,j)=>{let s=0;for(let n=0;n<N;n++)s+=Phi[n][i]*Phi[n][j];return s+(i==j?lam:0)})),Ai=inv(A);
+const w=x.map((_,i)=>{let s=0;for(let j=0;j<N;j++){let t=0;for(let n=0;n<N;n++)t+=Phi[n][j]*y[n];s+=Ai[i][j]*t}return s});
+const W=640,H=340,g=setup('c4',W,H),{X,Y}=frame(g,W,H,-6,6,-.6,1.3);
+const G=[];for(let i=0;i<=160;i++)G.push(-6+12*i/160);
+line(g,G.map(v=>[X(v),Y(sinc(v))]),css('--mut'),1.5,[2,3]);
+const mean=[],up=[],lo=[];G.forEach(v=>{const ph=m.act.map(a=>k(v,x[a]));let mu=0,vr=1/m.beta;ph.forEach((p,i)=>mu+=p*m.mu[i]);
+for(let i=0;i<ph.length;i++)for(let j=0;j<ph.length;j++)vr+=ph[i]*m.S[i][j]*ph[j];const sd=Math.sqrt(Math.max(vr,0));mean.push([X(v),Y(mu)]);up.push([X(v),Y(mu+2*sd)]);lo.push([X(v),Y(mu-2*sd)])});
+g.fillStyle=css('--c1');g.globalAlpha=.15;g.beginPath();up.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));lo.slice().reverse().forEach(p=>g.lineTo(p[0],p[1]));g.fill();g.globalAlpha=1;
+line(g,G.map(v=>[X(v),Y(x.reduce((s,xi,i)=>s+w[i]*k(v,xi),0))]),css('--c2'),2,[6,3]);
+line(g,mean,css('--c1'),2.5);
+x.forEach((v,i)=>dot(g,X(v),Y(y[i]),3.5,css('--fg')));
+m.act.forEach(a=>ring(g,X(x[a]),Y(y[a]),8,css('--c3')));
+$('rOut').textContent=`relevance vectors: ${m.act.length}/${N}   (ridge uses all ${N})   estimated noise σ = ${(1/Math.sqrt(m.beta)).toFixed(3)} vs true ${sg.toFixed(2)}`}
+['rI','rL','rN','rR'].forEach(i=>$(i).oninput=d4);$('rNew').onclick=()=>{genR();d4()};
+
+genP();genR();
+const h=parseInt((location.hash||'#t0').slice(2));show(h>=0&&h<5?h:0);
+try{matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>[d0,d1,d2,d3,d4][[...$('nav').children].findIndex(b=>b.classList.contains('on'))]())}catch(e){}
+</script></body></html>
