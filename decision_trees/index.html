@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trees &amp; Ensembles Lab</title>
+<style>
+:root{--bg:#f6f7f4;--surf:#fff;--ink:#1d2a24;--mut:#5f6d66;--line:#d9ded8;--a:#2b7bd1;--b:#e0762f;--acc:#2f6b4f;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141a17;--surf:#1d2622;--ink:#e6ece8;--mut:#9aa8a0;--line:#33413a;--a:#5aa3ee;--b:#f0955a;--acc:#6fc59a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141a17;--surf:#1d2622;--ink:#e6ece8;--mut:#9aa8a0;--line:#33413a;--a:#5aa3ee;--b:#f0955a;--acc:#6fc59a;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Georgia,"Iowan Old Style",serif}
+main{max-width:1020px;margin:0 auto;padding:20px 16px 40px}
+h1{font:700 28px/1.2 "Trebuchet MS",system-ui,sans-serif;margin:0 0 4px}
+p.sub{margin:0 0 16px;color:var(--mut)}
+nav{display:flex;gap:6px;border-bottom:2px solid var(--line);margin-bottom:16px;flex-wrap:wrap}
+nav button{font:600 15px system-ui,sans-serif;background:none;border:0;color:var(--mut);padding:10px 14px;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+nav button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--acc)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.grid{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:20px}
+@media(max-width:780px){.grid{grid-template-columns:1fr}}
+canvas{width:100%;aspect-ratio:1;background:var(--surf);border:1px solid var(--line);border-radius:6px;cursor:crosshair;touch-action:manipulation}
+.panel{font-family:system-ui,sans-serif;font-size:14px}
+.row{display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap}
+.row label{min-width:92px;color:var(--mut)}
+.row input[type=range]{flex:1;min-width:120px;accent-color:var(--acc)}
+.row output{min-width:28px;font-weight:700}
+select,.btn{font:inherit;background:var(--surf);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+.btn.on{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+.stats{display:flex;gap:10px;margin:12px 0}
+.stat{flex:1;background:var(--surf);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.stat b{display:block;font-size:22px}
+.note{background:var(--surf);border-left:4px solid var(--acc);padding:10px 12px;border-radius:0 6px 6px 0;margin:10px 0;font-family:Georgia,serif;font-size:15px}
+.tree{font:13px/1.5 ui-monospace,Menlo,monospace;max-height:230px;overflow:auto;background:var(--surf);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.tree div{white-space:nowrap}
+.learn{font-family:Georgia,serif;margin:0 0 6px}
+.learn h2{font:700 17px system-ui,sans-serif;margin:0 0 4px}
+</style>
+</head>
+<body>
+<main>
+<h1>Trees &amp; Ensembles Lab</h1>
+<p class="sub">Click the plot to add points, then change the sliders and watch the decision boundary react.</p>
+<nav role="tablist" id="tabs">
+<button role="tab" data-m="tree" aria-selected="true">Decision tree</button>
+<button role="tab" data-m="forest" aria-selected="false">Random forest</button>
+<button role="tab" data-m="boost" aria-selected="false">Boosting</button>
+</nav>
+<div class="grid">
+<div>
+<canvas id="cv" width="420" height="420" aria-label="Scatter plot with decision regions"></canvas>
+<div class="row" style="font-family:system-ui,sans-serif;font-size:13px;color:var(--mut)">Add class:
+<button class="btn on" id="c0"><span class="dot" style="background:var(--a)"></span>Blue</button>
+<button class="btn" id="c1"><span class="dot" style="background:var(--b)"></span>Orange</button></div>
+</div>
+<div class="panel">
+<div class="learn" id="learn"></div>
+<div class="row"><label>Dataset</label><select id="ds"><option value="moons">Two moons</option><option value="circles">Rings</option><option value="xor">XOR</option><option value="blobs">Blobs</option></select>
+<button class="btn" id="regen">New data</button><button class="btn" id="clr">Clear points</button></div>
+<div class="row"><label>Noise</label><input type="range" id="noise" min="0" max="0.4" step="0.02" value="0.2"><output id="noiseo"></output></div>
+<div id="ctl"></div>
+<div class="stats"><div class="stat">Train accuracy<b id="tr"></b></div><div class="stat">Test accuracy<b id="te"></b></div><div class="stat" id="cmpbox" style="display:none">One deep tree (test)<b id="cmp"></b></div></div>
+<div class="note" id="msg"></div>
+<div id="treebox"><div class="tree" id="tree"></div></div>
+</div>
+</div>
+</main>
+<script>
+const cv=document.getElementById('cv'),cx=cv.getContext('2d'),S=420,G=70,$=id=>document.getElementById(id);
+let mode='tree',P=[],T=[],cls=0,cache={};
+const P0=Math.random;
+function gauss(){return Math.sqrt(-2*Math.log(P0()+1e-9))*Math.cos(6.283*P0())}
+function gen(n,ds,nz){const o=[];for(let i=0;i<n;i++){let c=i%2,x,y;
+if(ds==='moons'){const t=P0()*Math.PI;x=c?1-Math.cos(t):Math.cos(t);y=c?.5-Math.sin(t):Math.sin(t)-0;x=(x+1)/3.2+.15;y=(y+.7)/2.2+.1}
+else if(ds==='circles'){const t=P0()*6.283,r=c?.18:.38;x=.5+r*Math.cos(t);y=.5+r*Math.sin(t)}
+else if(ds==='xor'){const a=P0()<.5?1:0;x=a?.3:.7;y=(a^c)?.3:.7;x+=0;y+=0;x+=(P0()-.5)*.02;}
+else{x=c?.7:.3;y=c?.65:.35}
+const k=ds==='xor'?nz*1.2:ds==='blobs'?nz*1.4:nz*.5;x+=gauss()*k*.35;y+=gauss()*k*.35;
+if(ds==='xor'){x=Math.min(.98,Math.max(.02,x));y=Math.min(.98,Math.max(.02,y))}
+o.push([Math.min(.99,Math.max(.01,x)),Math.min(.99,Math.max(.01,y)),c])}return o}
+function newData(){const d=$('ds').value,n=+$('noise').value;P=gen(70,d,n);T=gen(200,d,n);cache={};run()}
+
+/* ---- CART ---- */
+function build(ids,w,d,maxD,rf){let a=0,b=0;for(const i of ids)P[i][2]?b+=w[i]:a+=w[i];const s=a+b,node={p:b/s,n:ids.length};
+if(d>=maxD||a===0||b===0||ids.length<2)return node;
+const fs=rf?[P0()<.5?0:1]:[0,1];let best=null,bs=(a*a+b*b)/s;
+for(const f of fs){const o=ids.slice().sort((i,j)=>P[i][f]-P[j][f]);let la=0,lb=0;
+for(let k=0;k<o.length-1;k++){const p=P[o[k]];p[2]?lb+=w[o[k]]:la+=w[o[k]];const v=p[f],u=P[o[k+1]][f];if(v===u)continue;
+const ra=a-la,rb=b-lb,ls=la+lb,rs=ra+rb;if(ls<=0||rs<=0)continue;const sc=(la*la+lb*lb)/ls+(ra*ra+rb*rb)/rs;
+if(sc>bs+1e-12){bs=sc;best={f,t:(v+u)/2,k}}}}
+if(!best)return node;
+const L=[],R=[];for(const i of ids)(P[i][best.f]<best.t?L:R).push(i);
+if(!L.length||!R.length)return node;
+node.f=best.f;node.t=best.t;node.l=build(L,w,d+1,maxD,rf);node.r=build(R,w,d+1,maxD,rf);return node}
+function pred(n,x,y){while(n.f!==undefined)n=(n.f?y:x)<n.t?n.l:n.r;return n.p}
+function fitTree(maxD,w,rf,idx){w=w||P.map(()=>1);return build(idx||P.map((_,i)=>i),w,0,maxD,rf)}
+
+/* ---- ensembles ---- */
+function fitForest(n,d,rf){const ts=[];for(let t=0;t<n;t++){const w=P.map(()=>0),ids=[];for(let i=0;i<P.length;i++){const j=Math.floor(P0()*P.length);w[j]++}
+P.forEach((_,i)=>{if(w[i])ids.push(i)});ts.push(build(ids,w,0,d,rf))}
+return(x,y)=>{let s=0;for(const t of ts)s+=pred(t,x,y);return s/n}}
+function fitBoost(R,d){let w=P.map(()=>1/P.length),ts=[],hist=[];
+for(let r=0;r<R;r++){const t=fitTree(d,w);let e=0;P.forEach((p,i)=>{if((pred(t,p[0],p[1])>=.5?1:0)!==p[2])e+=w[i]});e=Math.max(e,1e-6);if(e>=.5&&r>0)break;
+const al=.5*Math.log((1-e)/e);ts.push([t,al]);let z=0;P.forEach((p,i)=>{const ok=(pred(t,p[0],p[1])>=.5?1:0)===p[2];w[i]*=Math.exp(ok?-al:al);z+=w[i]});w=w.map(v=>v/z);if(e<1e-5)break}
+return{f:(x,y)=>{let s=0;for(const[t,al]of ts)s+=al*(pred(t,x,y)>=.5?1:-1);return 1/(1+Math.exp(-2*s))},w,n:ts.length}}
+
+/* ---- UI ---- */
+const learn={tree:['How a decision tree works','The tree asks one yes/no question at a time (“is x &lt; 0.4?”), choosing the split that makes each side as pure as possible. Deeper trees carve finer boxes. Raise the depth and watch train accuracy hit 100% while test accuracy stalls: that gap is overfitting.'],
+forest:['Random forest = bagging','Each tree trains on a bootstrap sample (random draw with replacement) and, optionally, sees a random feature at each split. Individual trees are noisy but make different mistakes, so averaging their votes smooths the boundary and cuts variance.'],
+boost:['Boosting = learning from mistakes','Trees are built one after another. After each round, misclassified points get more weight (bigger dots), so the next shallow tree focuses on them. The final answer is a weighted vote of all rounds. It reduces bias, but can overfit noisy data.']};
+function ctl(){const c={tree:[['depth','Max depth',1,12,3]],forest:[['nt','Trees',1,100,25],['depth','Max depth',1,12,6]],boost:[['nr','Rounds',1,60,10],['depth','Tree depth',1,3,1]]}[mode];
+$('ctl').innerHTML=c.map(([id,l,mn,mx,v])=>`<div class="row"><label>${l}</label><input type="range" id="${id}" min="${mn}" max="${mx}" value="${v}"><output id="${id}o">${v}</output></div>`).join('')+(mode==='forest'?'<div class="row"><label></label><label style="min-width:0"><input type="checkbox" id="rf" checked> Random feature per split</label><button class="btn" id="rs">Resample</button></div>':'');
+$('ctl').querySelectorAll('input[type=range]').forEach(e=>e.oninput=()=>{$(e.id+'o').textContent=e.value;run()});
+if($('rf'))$('rf').onchange=run;if($('rs'))$('rs').onclick=run}
+function acc(f,D){let k=0;for(const p of D)if((f(p[0],p[1])>=.5?1:0)===p[2])k++;return k/D.length}
+function col(p){const a=[43,123,209],b=[224,118,47];const m=i=>Math.round(a[i]*(1-p)+b[i]*p);return`rgba(${m(0)},${m(1)},${m(2)},${.12+.38*Math.abs(p-.5)*2})`}
+function show(n,d,out){if(n.f===undefined){out.push(`<div style="padding-left:${d*14}px">→ <b style="color:var(${n.p>=.5?'--b':'--a'})">${n.p>=.5?'Orange':'Blue'}</b> (${n.n} pts)</div>`);return}
+out.push(`<div style="padding-left:${d*14}px">${n.f?'y':'x'} &lt; ${n.t.toFixed(2)} ?</div>`);if(out.length<60){show(n.l,d+1,out);show(n.r,d+1,out)}}
+function run(){if(P.length<2){cx.clearRect(0,0,S,S);$('msg').textContent='Click the plot to add at least two points, one of each colour, or press New data.';return}
+let f,w=null,extra='',tm=mode;const g=id=>$(id)?+$(id).value:0;
+if(mode==='tree'){const t=fitTree(g('depth'));f=(x,y)=>pred(t,x,y);const o=[];show(t,0,o);$('tree').innerHTML=o.join('')}
+else if(mode==='forest'){f=fitForest(g('nt'),g('depth'),$('rf').checked);const t=fitTree(20);const ft=(x,y)=>pred(t,x,y);$('cmp').textContent=Math.round(acc(ft,T)*100)+'%';extra=acc(ft,T)}
+else{const m=fitBoost(g('nr'),g('depth'));f=m.f;w=m.w}
+const ta=acc(f,P),sa=acc(f,T);$('tr').textContent=Math.round(ta*100)+'%';$('te').textContent=Math.round(sa*100)+'%';
+$('cmpbox').style.display=mode==='forest'?'':'none';$('treebox').style.display=mode==='tree'?'':'none';
+let m;if(mode==='tree')m=ta-sa>.08?'Big train/test gap: this tree is memorizing noise. Try a smaller depth.':sa<.8&&g('depth')<3?'Too shallow to capture the shape (underfitting). Add depth.':'Nice balance. Compare train vs test as you add depth.';
+else if(mode==='forest')m=sa>extra+.01?'The forest beats a single fully-grown tree on unseen data. That is the ensemble effect.':sa<extra-.01?'Here one tree did slightly better; try more trees or lower depth.':'About tied with one deep tree; add trees to see the boundary smooth out.';
+else m='Bigger dots are points the model finds hard. Add rounds and watch the weights shift toward them.';
+$('msg').innerHTML=m;
+cx.clearRect(0,0,S,S);const c=S/G;for(let i=0;i<G;i++)for(let j=0;j<G;j++){cx.fillStyle=col(f((i+.5)/G,1-(j+.5)/G));cx.fillRect(i*c,j*c,c+.5,c+.5)}
+const css=getComputedStyle(document.documentElement),ca=css.getPropertyValue('--a'),cb=css.getPropertyValue('--b'),ln=css.getPropertyValue('--surf');
+P.forEach((p,i)=>{const r=w?3.5+Math.min(10,w[i]*P.length*1.6):4.5;cx.beginPath();cx.arc(p[0]*S,(1-p[1])*S,r,0,6.283);cx.fillStyle=p[2]?cb:ca;cx.fill();cx.lineWidth=1.5;cx.strokeStyle=ln;cx.stroke()})}
+function setMode(m){mode=m;document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.m===m));$('learn').innerHTML=`<h2>${learn[m][0]}</h2><p style="margin:0">${learn[m][1]}</p>`;ctl();run()}
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>setMode(b.dataset.m));
+cv.addEventListener('click',e=>{const r=cv.getBoundingClientRect();P.push([(e.clientX-r.left)/r.width,1-(e.clientY-r.top)/r.height,cls]);run()});
+[0,1].forEach(k=>$('c'+k).onclick=()=>{cls=k;$('c0').classList.toggle('on',!k);$('c1').classList.toggle('on',!!k)});
+$('noise').oninput=()=>{$('noiseo').textContent=$('noise').value};$('noise').onchange=newData;$('ds').onchange=newData;$('regen').onclick=newData;
+$('clr').onclick=()=>{P=[];run()};
+$('noiseo').textContent=$('noise').value;
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',run);
+$('learn').innerHTML='';newData();setMode('tree');
+</script>
+</body>
+</html>
