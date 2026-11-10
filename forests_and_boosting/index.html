@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Random forests and boosting, side by side</title>
+<style>
+:root{--bg:#f4f6f8;--surface:#fff;--text:#17202a;--muted:#5b6773;--line:#d5dbe1;--accent:#3b4cca;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1419;--surface:#171d24;--text:#e6ebf0;--muted:#93a0ad;--line:#2a333d;--accent:#8fa2ff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1419;--surface:#171d24;--text:#e6ebf0;--muted:#93a0ad;--line:#2a333d;--accent:#8fa2ff;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:24px 16px 48px}
+h1{font:600 clamp(26px,4.5vw,38px)/1.15 "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;margin:0 0 8px;letter-spacing:-.01em}
+.lede{color:var(--muted);max-width:62ch;margin:0 0 20px}
+.bar{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:8px;margin-bottom:16px}
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.tabs button{font:inherit;font-weight:600;padding:10px 16px;border:0;background:none;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+canvas{width:100%;height:auto;display:block;background:var(--surface);border:1px solid var(--line);border-radius:6px}
+h2{font:600 19px/1.3 "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;margin:0 0 6px}
+p{margin:0 0 12px}
+.muted{color:var(--muted);font-size:14px}
+label{display:flex;flex-direction:column;gap:2px;font-size:14px;margin-bottom:12px}
+label.chk{flex-direction:row;align-items:center;gap:8px}
+label b{font-weight:600}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.btn{font:inherit;font-weight:600;padding:8px 14px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:4px 0 14px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.stat strong{display:block;font-size:22px;line-height:1.2;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+.minis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:10px}
+@media (max-width:760px){.minis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.minis div{font-size:12px;color:var(--muted)}
+.key{font-size:13px;color:var(--muted);margin-top:8px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 4px 0 0;vertical-align:-1px}
+.note{border-left:3px solid var(--accent);padding:2px 0 2px 12px;margin:14px 0}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<h1>Random forests and boosting, side by side</h1>
+<p class="lede">Both methods combine many small decision trees into one strong model. They differ in how the trees are made: a forest grows them independently and averages them, boosting grows them one after another, each fixing the last one’s mistakes.</p>
+
+<div class="bar">
+  <label style="margin:0;min-width:200px"><b>Noise: <output id="nzv">0.25</output></b><input id="nz" type="range" min="0.05" max="0.5" step="0.05" value="0.25"></label>
+  <button class="btn" id="nd">New random data</button>
+  <span class="muted">Two curved classes, 120 training points. Accuracy is measured on 300 separate test points.</span>
+</div>
+
+<div class="tabs" role="tablist">
+  <button role="tab" id="t1" aria-selected="true">Random forest</button>
+  <button role="tab" id="t2" aria-selected="false">Boosting (AdaBoost)</button>
+</div>
+
+<section id="p1">
+<div class="grid">
+  <div>
+    <canvas id="rf" width="580" height="400" aria-label="Random forest decision regions"></canvas>
+    <p class="key"><span class="sw" style="background:rgb(13,148,136)"></span>class A <span class="sw" style="background:rgb(190,40,140);margin-left:10px"></span>class B. Background shows the forest’s vote, with deeper color where the trees agree more.</p>
+    <div class="minis" id="minis"></div>
+    <p class="key">Individual trees above. Filled dots were in that tree’s bootstrap sample. Hollow dots were left out.</p>
+  </div>
+  <div>
+    <h2>Grow many trees, then average</h2>
+    <p>Each tree trains on a random resample of the data and, optionally, looks at only one random feature per split. Alone, a deep tree memorizes its sample and gives jagged borders. Averaged, the quirks cancel out.</p>
+    <label><b>Number of trees: <output id="ntv">25</output></b><input id="nt" type="range" min="1" max="100" value="25"></label>
+    <label><b>Max depth: <output id="mdv">8</output></b><input id="md" type="range" min="1" max="12" value="8"></label>
+    <label class="chk"><input id="bs" type="checkbox" checked> Bootstrap sample for each tree</label>
+    <label class="chk"><input id="mt" type="checkbox" checked> One random feature per split</label>
+    <div class="stats">
+      <div class="stat"><strong id="s1">–</strong><span>one tree, test</span></div>
+      <div class="stat"><strong id="s2">–</strong><span>forest, test</span></div>
+      <div class="stat"><strong id="s3">–</strong><span>out-of-bag</span></div>
+    </div>
+    <p class="note muted">Try this: set trees to 1 and watch test accuracy, then drag to 50. Then untick both boxes. Every tree now sees the same data, so they are identical and the forest gains nothing.</p>
+    <p class="muted">Out-of-bag accuracy scores each training point using only trees that never saw it, a free test estimate.</p>
+  </div>
+</div>
+</section>
+
+<section id="p2" hidden>
+<div class="grid">
+  <div>
+    <canvas id="bm" width="580" height="400" aria-label="Boosting decision regions"></canvas>
+    <p class="key">Dot size shows the current weight of each point. Big dots are the ones the ensemble keeps getting wrong, so the next tree is pushed to focus on them.</p>
+  </div>
+  <div>
+    <h2>Add trees one at a time</h2>
+    <p>Boosting starts with a very simple tree, then reweights the data to emphasize its mistakes and trains the next tree on that. Each tree gets a vote proportional to how accurate it was.</p>
+    <label><b>Tree depth: <output id="bdv">1</output></b><input id="bd" type="range" min="1" max="4" value="1"></label>
+    <label><b>Learning rate: <output id="lrv">1</output></b><input id="lr" type="range" min="0.1" max="1" step="0.1" value="1"></label>
+    <div class="row">
+      <button class="btn primary" id="b1">Add 1 tree</button>
+      <button class="btn" id="b10">Add 10</button>
+      <button class="btn" id="br">Reset</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><strong id="k1">0</strong><span>trees</span></div>
+      <div class="stat"><strong id="k2">–</strong><span>train acc.</span></div>
+      <div class="stat"><strong id="k3">–</strong><span>test acc.</span></div>
+    </div>
+    <p class="muted" id="info">Press “Add 1 tree” to begin.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><canvas id="bw" width="290" height="200" aria-label="Latest weak learner"></canvas><p class="key">Latest tree alone</p></div>
+      <div><canvas id="sp" width="290" height="200" aria-label="Accuracy by round"></canvas><p class="key">Grey: training accuracy. Blue: test accuracy.</p></div>
+    </div>
+  </div>
+</div>
+<p class="note muted">Try this: with depth 1 (a single cut per tree), add trees and watch a staircase boundary form. Then raise depth to 4 and add many trees. Training accuracy climbs toward 100% while test accuracy can stall, because boosting keeps chasing noisy points.</p>
+</section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const C0='13,148,136',C1='190,40,140';
+const X0=-1.6,X1=2.6,Y0=-1.2,Y1=1.7;
+function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function gauss(r){return Math.sqrt(-2*Math.log(1-r()))*Math.cos(2*Math.PI*r())}
+function makeSet(n,noise,r){const P=[];for(let i=0;i<n;i++){const c=i%2,t=Math.PI*r();const x=c?1-Math.cos(t):Math.cos(t),y=c?.5-Math.sin(t):Math.sin(t);P.push({v:[x+noise*gauss(r),y+noise*gauss(r)],c})}return P}
+
+/* decision tree on weighted samples (Gini) */
+function imp(w1,w){return w>0?w*2*(w1/w)*(1-w1/w):0}
+function build(pts,idx,w,d,maxD,mtry,r){
+  let W=0,W1=0;for(const i of idx){W+=w[i];if(pts[i].c)W1+=w[i]}
+  if(d>=maxD||W1<=1e-12||W-W1<=1e-12)return{p:W?W1/W:.5};
+  let fs=[0,1];if(mtry===1&&r()<.5)fs=[1,0];fs=fs.slice(0,mtry);
+  let best=null,bc=imp(W1,W)-1e-12;
+  for(const f of fs){
+    const s=idx.slice().sort((a,b)=>pts[a].v[f]-pts[b].v[f]);let L=0,L1=0;
+    for(let k=0;k<s.length-1;k++){
+      const i=s[k];L+=w[i];if(pts[i].c)L1+=w[i];
+      const a=pts[i].v[f],b=pts[s[k+1]].v[f];if(b-a<1e-9)continue;
+      const cost=imp(L1,L)+imp(W1-L1,W-L);if(cost<bc){bc=cost;best={f,t:(a+b)/2}}
+    }
+  }
+  if(!best)return{p:W1/W};
+  const li=[],ri=[];for(const i of idx)(pts[i].v[best.f]<best.t?li:ri).push(i);
+  return{f:best.f,t:best.t,l:build(pts,li,w,d+1,maxD,mtry,r),r:build(pts,ri,w,d+1,maxD,mtry,r)};
+}
+const pred=(n,v)=>n.f===undefined?n.p:pred(v[n.f]<n.t?n.l:n.r,v);
+
+/* drawing */
+function field(cv,fn,cell){
+  const c=cv.getContext('2d'),W=cv.width,H=cv.height;c.clearRect(0,0,W,H);
+  for(let px=0;px<W;px+=cell)for(let py=0;py<H;py+=cell){
+    const x=X0+(px+cell/2)/W*(X1-X0),y=Y1-(py+cell/2)/H*(Y1-Y0),v=fn(x,y);
+    c.fillStyle=`rgba(${v>.5?C1:C0},${.1+.5*Math.abs(2*v-1)})`;c.fillRect(px,py,cell,cell);
+  }
+}
+function dots(cv,rf){
+  const c=cv.getContext('2d'),W=cv.width,H=cv.height,st=getComputedStyle(document.body).getPropertyValue('--surface');
+  train.forEach((p,i)=>{
+    const [r,hollow]=rf(i),x=(p.v[0]-X0)/(X1-X0)*W,y=(Y1-p.v[1])/(Y1-Y0)*H,col=p.c?C1:C0;
+    c.beginPath();c.arc(x,y,r,0,7);
+    if(hollow){c.strokeStyle=`rgb(${col})`;c.lineWidth=1.2;c.stroke()}
+    else{c.fillStyle=`rgb(${col})`;c.fill();c.strokeStyle=st;c.lineWidth=1;c.stroke()}
+  });
+}
+const pct=v=>Math.round(v*100)+'%';
+
+/* data */
+let seed=7,train,test,ONES;
+function newData(){
+  const noise=+$('#nz').value;
+  train=makeSet(120,noise,rng(seed));test=makeSet(300,noise,rng(seed+99));ONES=train.map(()=>1);
+  rfBuild();bReset();
+}
+
+/* random forest */
+let trees=[],bags=[];
+const minis=$('#minis');
+for(let i=0;i<6;i++){const d=document.createElement('div');d.innerHTML=`<canvas width="150" height="104"></canvas>tree ${i+1}`;minis.appendChild(d)}
+function rfBuild(){
+  const n=+$('#nt').value,d=+$('#md').value,m=$('#mt').checked?1:2,bs=$('#bs').checked;
+  trees=[];bags=[];
+  for(let t=0;t<n;t++){
+    const r=rng(1000+t*7919+seed),idx=[],inb=new Set();
+    for(let i=0;i<train.length;i++){const j=bs?(r()*train.length|0):i;idx.push(j);inb.add(j)}
+    trees.push(build(train,idx,ONES,0,d,m,r));bags.push(inb);
+  }
+  rfDraw();
+}
+function rfDraw(){
+  const avg=v=>trees.reduce((s,t)=>s+pred(t,v),0)/trees.length;
+  field($('#rf'),(x,y)=>avg([x,y]),8);dots($('#rf'),()=>[4.2,false]);
+  minis.querySelectorAll('canvas').forEach((cv,k)=>{
+    const c=cv.getContext('2d');
+    if(k>=trees.length){c.clearRect(0,0,cv.width,cv.height);return}
+    field(cv,(x,y)=>pred(trees[k],[x,y]),4);dots(cv,i=>[2.4,!bags[k].has(i)]);
+  });
+  const ok=(f,pts)=>pts.filter(p=>(f(p.v)>=.5?1:0)===p.c).length/pts.length;
+  $('#s1').textContent=pct(ok(v=>pred(trees[0],v),test));
+  $('#s2').textContent=pct(ok(avg,test));
+  let h=0,tot=0;
+  train.forEach((p,i)=>{
+    let s=0,n=0;trees.forEach((t,k)=>{if(!bags[k].has(i)){s+=pred(t,p.v);n++}});
+    if(n){tot++;if((s/n>=.5?1:0)===p.c)h++}
+  });
+  $('#s3').textContent=tot?pct(h/tot):'n/a';
+}
+[['nt','ntv'],['md','mdv']].forEach(([a,b])=>$('#'+a).addEventListener('input',e=>{$('#'+b).textContent=e.target.value;rfBuild()}));
+$('#bs').addEventListener('change',rfBuild);$('#mt').addEventListener('change',rfBuild);
+
+/* boosting */
+let w,rounds,hist,Ftr,Fte;
+function bReset(){
+  w=train.map(()=>1/train.length);rounds=[];hist=[];Ftr=train.map(()=>0);Fte=test.map(()=>0);
+  $('#info').textContent='Press “Add 1 tree” to begin.';bDraw();
+}
+function bStep(){
+  const d=+$('#bd').value,lr=+$('#lr').value,n=train.length;
+  const t=build(train,train.map((_,i)=>i),w,0,d,2,Math.random);
+  const h=v=>pred(t,v)>=.5?1:-1;
+  let e=0;train.forEach((p,i)=>{if(h(p.v)!==(p.c?1:-1))e+=w[i]});
+  e=Math.min(Math.max(e,1e-6),1-1e-6);
+  const a=lr*.5*Math.log((1-e)/e);
+  let s=0;train.forEach((p,i)=>{w[i]*=Math.exp(-a*(p.c?1:-1)*h(p.v));s+=w[i]});
+  w=w.map(x=>x/s);
+  train.forEach((p,i)=>Ftr[i]+=a*h(p.v));test.forEach((p,i)=>Fte[i]+=a*h(p.v));
+  rounds.push({t,a,e});
+  const acc=(F,P)=>P.filter((p,i)=>(F[i]>0?1:0)===p.c).length/P.length;
+  hist.push([acc(Ftr,train),acc(Fte,test)]);
+  $('#info').textContent=`Latest tree: weighted error ${e.toFixed(2)}, vote weight ${a.toFixed(2)}. More accurate trees get a bigger say.`;
+}
+function bDraw(){
+  const n=train.length;
+  field($('#bm'),(x,y)=>{let f=0;for(const r of rounds)f+=r.a*(pred(r.t,[x,y])>=.5?1:-1);return 1/(1+Math.exp(-1.5*f))},8);
+  dots($('#bm'),i=>[Math.min(13,2+2.7*Math.sqrt(w[i]*n)),false]);
+  const bw=$('#bw'),c=bw.getContext('2d');c.clearRect(0,0,bw.width,bw.height);
+  if(rounds.length){const t=rounds[rounds.length-1].t;field(bw,(x,y)=>pred(t,[x,y]),5);dots(bw,i=>[2.6,false])}
+  const last=hist[hist.length-1];
+  $('#k1').textContent=rounds.length;$('#k2').textContent=last?pct(last[0]):'–';$('#k3').textContent=last?pct(last[1]):'–';
+  spark();
+}
+function spark(){
+  const cv=$('#sp'),c=cv.getContext('2d'),W=cv.width,H=cv.height,cs=getComputedStyle(document.body);
+  c.clearRect(0,0,W,H);c.strokeStyle=cs.getPropertyValue('--line');c.lineWidth=1;
+  [.5,.75,1].forEach(v=>{const y=H-5-(v-.5)/.5*(H-10);c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke()});
+  [[0,'--muted'],[1,'--accent']].forEach(([k,col])=>{
+    c.strokeStyle=cs.getPropertyValue(col);c.lineWidth=2;c.beginPath();
+    hist.forEach((h,i)=>{const x=i/Math.max(hist.length-1,19)*W,y=H-5-(Math.max(.5,h[k])-.5)/.5*(H-10);i?c.lineTo(x,y):c.moveTo(x,y)});
+    c.stroke();
+  });
+}
+const go=n=>()=>{for(let i=0;i<n;i++)bStep();bDraw()};
+$('#b1').onclick=go(1);$('#b10').onclick=go(10);$('#br').onclick=bReset;
+[['bd','bdv'],['lr','lrv']].forEach(([a,b])=>$('#'+a).addEventListener('input',e=>$('#'+b).textContent=e.target.value));
+
+/* shared controls and tabs */
+$('#nz').addEventListener('input',e=>{$('#nzv').textContent=(+e.target.value).toFixed(2);newData()});
+$('#nd').onclick=()=>{seed++;newData()};
+function tab(k){
+  $('#p1').hidden=k!==1;$('#p2').hidden=k!==2;
+  $('#t1').setAttribute('aria-selected',k===1);$('#t2').setAttribute('aria-selected',k===2);
+}
+$('#t1').onclick=()=>tab(1);$('#t2').onclick=()=>tab(2);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{rfDraw();bDraw()});
+newData();
+</script>
+</body>
+</html>
