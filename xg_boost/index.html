@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>XGBoost for biomechanical data</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=Figtree:wght@400;600&display=swap">
+<style>
+:root{--bg:#eef3f5;--surface:#fff;--ink:#14232b;--mute:#5a6b74;--line:#cfdbe0;--a:#0b7d80;--b:#d9532b;--soft:#dcecee;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a20;--surface:#17262e;--ink:#e6eef1;--mute:#93a6af;--line:#2b3f49;--a:#3fc3c6;--b:#ff8a63;--soft:#1d3a41;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1a20;--surface:#17262e;--ink:#e6eef1;--mute:#93a6af;--line:#2b3f49;--a:#3fc3c6;--b:#ff8a63;--soft:#1d3a41;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 Figtree,system-ui,sans-serif}
+main{max-width:860px;margin:0 auto;padding:28px 18px 60px}
+h1,h2,h3{font-family:Fraunces,Georgia,serif;font-weight:600;line-height:1.2;margin:0 0 .5em}
+h1{font-size:clamp(1.9rem,5vw,2.6rem)}h2{font-size:1.4rem}h3{font-size:1.05rem}
+p{max-width:68ch;margin:0 0 1em}
+.lead{color:var(--mute);font-size:1.08rem}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin:22px 0;border-bottom:1px solid var(--line)}
+nav button{background:none;border:0;border-bottom:3px solid transparent;color:var(--mute);font:inherit;font-weight:600;padding:10px 12px;cursor:pointer}
+nav button[aria-selected=true]{color:var(--ink);border-color:var(--a)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+section[hidden]{display:none}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin:14px 0}
+.ctrls{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 18px}
+.ctrls label{display:block;font-size:.88rem;font-weight:600}
+.ctrls output{float:right;color:var(--a);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--a)}
+canvas{width:100%;display:block}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.85rem;color:var(--mute);margin-top:8px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.stats{display:flex;gap:22px;flex-wrap:wrap;margin-top:10px}
+.stats div{font-size:.85rem;color:var(--mute)}.stats b{display:block;font-size:1.3rem;color:var(--ink);font-variant-numeric:tabular-nums}
+.verdict{margin-top:10px;padding:10px 12px;border-radius:8px;background:var(--soft);font-size:.92rem}
+details{background:var(--surface);border:1px solid var(--line);border-radius:10px;margin:10px 0;padding:0 16px}
+summary{cursor:pointer;padding:12px 0;font-weight:600;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary span{color:var(--a);font-weight:400;font-size:.88rem;margin-left:8px}
+details[open] summary{border-bottom:1px solid var(--line);margin-bottom:10px}
+details p{font-size:.95rem}
+.tip{border-left:3px solid var(--b);padding-left:12px}
+pre{background:#0f1a20;color:#dfeaee;padding:14px;border-radius:10px;overflow-x:auto;font-size:.82rem;line-height:1.5;margin:0}
+.copy{margin:8px 0;background:var(--a);color:#fff;border:0;border-radius:6px;padding:6px 12px;font:inherit;font-size:.85rem;cursor:pointer}
+.quiz button{display:block;width:100%;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin:6px 0;font:inherit;cursor:pointer}
+.quiz button.ok{border-color:var(--a);background:var(--soft)}.quiz button.no{border-color:var(--b)}
+.fb{font-size:.9rem;color:var(--mute);margin:4px 0 14px}
+</style>
+</head>
+<body>
+<main>
+<h1>XGBoost, explained with gait data</h1>
+<p class="lead">XGBoost builds many small decision trees, each one correcting the mistakes of the ones before it. Play with the model below, then see which settings and habits matter for biomechanical data.</p>
+
+<nav role="tablist" id="tabs">
+<button role="tab" aria-selected="true" data-t="play">Playground</button>
+<button role="tab" aria-selected="false" data-t="hyper">Hyperparameters</button>
+<button role="tab" aria-selected="false" data-t="bio">Biomechanics pitfalls</button>
+<button role="tab" aria-selected="false" data-t="code">Starter code</button>
+<button role="tab" aria-selected="false" data-t="quiz">Quiz</button>
+</nav>
+
+<section id="play">
+<h2>Watch boosting build a knee-angle curve</h2>
+<p>The dots are simulated knee flexion angles across the gait cycle, with noise from marker placement and stride variability. Start with 1 tree, then add more. Each new tree fits what the previous ones got wrong.</p>
+<div class="panel">
+<div class="ctrls">
+<div><label for="nt">Trees <output id="ntO"></output></label><input id="nt" type="range" min="1" max="150" value="1"></div>
+<div><label for="lr">Learning rate <output id="lrO"></output></label><input id="lr" type="range" min="0.02" max="1" step="0.01" value="0.3"></div>
+<div><label for="md">Max depth <output id="mdO"></output></label><input id="md" type="range" min="1" max="8" value="2"></div>
+<div><label for="ns">Noise (degrees) <output id="nsO"></output></label><input id="ns" type="range" min="0" max="12" step="0.5" value="5"></div>
+</div>
+</div>
+<div class="panel">
+<canvas id="c1" height="300" aria-label="Boosted fit over gait cycle"></canvas>
+<div class="legend"><span><i style="background:var(--mute)"></i>Training strides</span><span><i style="background:var(--b)"></i>Held-out strides</span><span><i style="background:var(--a)"></i>Model prediction</span></div>
+<div class="stats"><div>Training error (RMSE)<b id="sTr"></b></div><div>Held-out error (RMSE)<b id="sTe"></b></div><div>Best tree count<b id="sBest"></b></div></div>
+<div class="verdict" id="verdict"></div>
+</div>
+<div class="panel">
+<h3>Error as you add trees</h3>
+<canvas id="c2" height="200" aria-label="Error versus number of trees"></canvas>
+<div class="legend"><span><i style="background:var(--a)"></i>Training</span><span><i style="background:var(--b)"></i>Held-out</span></div>
+<p style="margin-top:10px;font-size:.92rem">When the two lines drift apart, the model is memorising noise. Raise the noise or the depth and watch the gap grow. This is why <b>early stopping</b> exists.</p>
+</div>
+</section>
+
+<section id="hyper" hidden>
+<h2>The settings that matter most</h2>
+<p>Open each one for what it does and how to set it on a typical biomechanics dataset (often a few hundred to a few thousand samples).</p>
+<details open><summary>learning_rate<span>try 0.03–0.1</span></summary><p>How much each tree is allowed to correct. Smaller values need more trees but generalise better.</p><p class="tip">Use a low rate, many trees, and early stopping to pick the count.</p></details>
+<details><summary>n_estimators + early_stopping_rounds<span>set high, then stop early</span></summary><p>Number of trees. Set it to something like 2000 and let early stopping halt training when the validation error stops improving.</p><p class="tip">Validate on held-out <em>participants</em>, not random rows.</p></details>
+<details><summary>max_depth<span>try 2–4</span></summary><p>How many questions a tree can ask in a row. Deeper trees capture interactions, such as speed combined with body mass, but overfit quickly on small data.</p></details>
+<details><summary>min_child_weight<span>try 3–10</span></summary><p>The minimum amount of data a leaf needs. Larger values stop the model from building rules around a handful of strides.</p></details>
+<details><summary>subsample and colsample_bytree<span>try 0.6–0.9</span></summary><p>Each tree sees a random fraction of rows and of features. This adds diversity and helps when features are correlated, as joint angles usually are.</p></details>
+<details><summary>reg_lambda and gamma<span>increase if overfitting</span></summary><p>Lambda shrinks leaf values (L2 penalty). Gamma is the minimum gain required to make a split. Both make the model more conservative.</p></details>
+</section>
+
+<section id="bio" hidden>
+<h2>Where biomechanics data can fool you</h2>
+<details open><summary>Split by participant, not by stride<span>the biggest one</span></summary><p>Strides from the same person are highly similar. If they land in both train and test sets, the model recognises the person and your score looks great. Use <code>GroupKFold</code> with participant ID as the group.</p></details>
+<details><summary>Trials and sessions leak too<span>same logic</span></summary><p>If you test on new participants, split by participant. If you test on a new session of known participants, split by session. Match the split to the question you want to answer.</p></details>
+<details><summary>Trees can’t extrapolate<span>limits of the method</span></summary><p>A tree predicts an average of training samples, so it never predicts beyond the range it has seen. If a new participant walks faster than anyone in training, the prediction stays flat. A linear model can extend a trend; XGBoost cannot.</p></details>
+<details><summary>Features matter more than tuning<span>work on these first</span></summary><p>Peak joint angle, range of motion, time of peak, stance duration, symmetry index, and participant descriptors (height, mass, speed) are usually stronger than raw time series. Time-normalise strides to 101 points if you use waveforms.</p></details>
+<details><summary>Run a simple baseline first<span>sanity check</span></summary><p>Compare against a ridge regression or logistic regression. If XGBoost is only slightly better, the simpler model is often the more defensible choice.</p></details>
+<details><summary>Explain with SHAP<span>interpretation</span></summary><p>Built-in feature importance can mislead when features are correlated. SHAP values show how each feature pushed each prediction, and work well for questions like “does cadence matter more than step width?”</p></details>
+</section>
+
+<section id="code" hidden>
+<h2>A starting point for your data</h2>
+<p>Assumes a table with one row per stride (or trial), a target column, and a participant ID column. Rename to match yours.</p>
+<button class="copy" id="cp">Copy code</button>
+<pre id="codeBlk">import pandas as pd, numpy as np
+from xgboost import XGBRegressor          # XGBClassifier for categories
+from sklearn.model_selection import GroupKFold
+from sklearn.metrics import mean_squared_error
+
+df = pd.read_csv("biomech_data.csv")
+y = df["peak_knee_moment"]                # your target
+groups = df["participant_id"]
+X = df.drop(columns=["peak_knee_moment", "participant_id"])
+
+scores = []
+for tr, te in GroupKFold(n_splits=5).split(X, y, groups):
+    model = XGBRegressor(
+        n_estimators=2000, learning_rate=0.05,
+        max_depth=3, min_child_weight=5,
+        subsample=0.8, colsample_bytree=0.8,
+        reg_lambda=5, early_stopping_rounds=50,
+    )
+    model.fit(X.iloc[tr], y.iloc[tr],
+              eval_set=[(X.iloc[te], y.iloc[te])], verbose=False)
+    pred = model.predict(X.iloc[te])
+    scores.append(np.sqrt(mean_squared_error(y.iloc[te], pred)))
+
+print("RMSE per fold:", np.round(scores, 3))
+print("Mean RMSE:", np.mean(scores).round(3))
+
+# Explain it (pip install shap)
+import shap
+shap.plots.beeswarm(shap.Explainer(model)(X))</pre>
+<p style="margin-top:12px;font-size:.92rem">Note: the early-stopping set above doubles as the test fold, which is slightly optimistic. For a final number, hold out a separate group of participants.</p>
+</section>
+
+<section id="quiz" hidden class="quiz">
+<h2>Check what stuck</h2>
+<div id="qz"></div>
+</section>
+</main>
+
+<script>
+// ---------- tabs ----------
+const tabs=document.querySelectorAll('#tabs button');
+function show(id){tabs.forEach(b=>b.setAttribute('aria-selected',b.dataset.t===id));
+document.querySelectorAll('main>section').forEach(s=>s.hidden=s.id!==id);if(id==='play')draw();}
+tabs.forEach(b=>b.onclick=()=>show(b.dataset.t));
+
+// ---------- data ----------
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function gauss(r){return Math.sqrt(-2*Math.log(r()+1e-9))*Math.cos(2*Math.PI*r())}
+function truth(x){const p=x/100;return 5+18*Math.exp(-Math.pow((p-.12)/.07,2))+58*Math.exp(-Math.pow((p-.72)/.1,2))+2*Math.sin(p*6)}
+const XMAX=100;
+// ---------- tree + boosting ----------
+function buildTree(xs,rs,idx,depth,maxD){
+  const n=idx.length,sum=idx.reduce((a,i)=>a+rs[i],0),mean=sum/n;
+  if(depth>=maxD||n<4)return{v:mean};
+  const s=idx.slice().sort((a,b)=>xs[a]-xs[b]);
+  let best=null,ls=0;
+  for(let k=0;k<n-1;k++){
+    ls+=rs[s[k]];
+    if(xs[s[k]]===xs[s[k+1]])continue;
+    const nl=k+1,nr=n-nl;if(nl<2||nr<2)continue;
+    const g=ls*ls/nl+(sum-ls)*(sum-ls)/nr;
+    if(!best||g>best.g)best={g,t:(xs[s[k]]+xs[s[k+1]])/2,k};
+  }
+  if(!best)return{v:mean};
+  return{t:best.t,l:buildTree(xs,rs,s.slice(0,best.k+1),depth+1,maxD),r:buildTree(xs,rs,s.slice(best.k+1),depth+1,maxD)};
+}
+const pred1=(t,x)=>t.l?pred1(x<=t.t?t.l:t.r,x):t.v;
+const grid=Array.from({length:201},(_,i)=>i*XMAX/200);
+let M=null; // model stages
+function fit(){
+  const noise=+ns.value,lrv=+lr.value,md=+mdp.value;
+  const r=rng(7);
+  const mk=n=>{const x=[],y=[];for(let i=0;i<n;i++){const a=r()*XMAX;x.push(a);y.push(truth(a)+gauss(r)*noise)}return{x,y}};
+  const tr=mk(70),te=mk(60);
+  const base=tr.y.reduce((a,b)=>a+b,0)/tr.y.length;
+  let ptr=tr.x.map(()=>base),pte=te.x.map(()=>base),pg=grid.map(()=>base);
+  const idx=tr.x.map((_,i)=>i);
+  const rmse=(p,y)=>Math.sqrt(p.reduce((a,v,i)=>a+(v-y[i])**2,0)/y.length);
+  const stages=[{g:pg.slice(),tr:rmse(ptr,tr.y),te:rmse(pte,te.y)}];
+  for(let m=0;m<150;m++){
+    const res=tr.y.map((v,i)=>v-ptr[i]);
+    const t=buildTree(tr.x,res,idx,0,md);
+    ptr=ptr.map((v,i)=>v+lrv*pred1(t,tr.x[i]));
+    pte=pte.map((v,i)=>v+lrv*pred1(t,te.x[i]));
+    pg=pg.map((v,i)=>v+lrv*pred1(t,grid[i]));
+    stages.push({g:pg.slice(),tr:rmse(ptr,tr.y),te:rmse(pte,te.y)});
+  }
+  M={tr,te,stages};
+}
+// ---------- drawing ----------
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function setup(c){const d=devicePixelRatio||1,w=c.clientWidth,h=+c.getAttribute('height');c.width=w*d;c.height=h*d;const g=c.getContext('2d');g.setTransform(d,0,0,d,0,0);return{g,w,h}}
+function frame(g,w,h,x0,x1,y0,y1,xl,yl){
+  const L=44,R=10,T=10,B=30,X=v=>L+(v-x0)/(x1-x0)*(w-L-R),Y=v=>h-B-(v-y0)/(y1-y0)*(h-B-T);
+  g.clearRect(0,0,w,h);g.strokeStyle=css('--line');g.fillStyle=css('--mute');g.font='11px Figtree,sans-serif';g.lineWidth=1;
+  for(let i=0;i<=4;i++){const v=y0+(y1-y0)*i/4,y=Y(v);g.beginPath();g.moveTo(L,y);g.lineTo(w-R,y);g.stroke();g.textAlign='right';g.fillText(v.toFixed(y1>30?0:1),L-6,y+4)}
+  g.textAlign='center';for(let i=0;i<=4;i++){const v=x0+(x1-x0)*i/4;g.fillText(Math.round(v),X(v),h-14)}
+  g.fillText(xl,(L+w-R)/2,h-1);g.save();g.translate(11,(T+h-B)/2);g.rotate(-Math.PI/2);g.fillText(yl,0,0);g.restore();
+  return{X,Y};
+}
+function draw(){
+  if(!M||!document.getElementById('play')||document.getElementById('play').hidden)return;
+  const n=+nt.value,s=M.stages[n],{tr,te}=M;
+  let {g,w,h}=setup(c1);
+  const {X,Y}=frame(g,w,h,0,100,-20,90,'Gait cycle (%)','Knee flexion (°)');
+  g.strokeStyle=css('--line');g.setLineDash([4,4]);g.beginPath();grid.forEach((x,i)=>{i?g.lineTo(X(x),Y(truth(x))):g.moveTo(X(x),Y(truth(x)))});g.stroke();g.setLineDash([]);
+  g.fillStyle=css('--mute');tr.x.forEach((x,i)=>{g.beginPath();g.arc(X(x),Y(tr.y[i]),3,0,7);g.fill()});
+  g.strokeStyle=css('--b');g.lineWidth=1.5;te.x.forEach((x,i)=>{g.beginPath();g.arc(X(x),Y(te.y[i]),3,0,7);g.stroke()});
+  g.strokeStyle=css('--a');g.lineWidth=2.5;g.beginPath();grid.forEach((x,i)=>{i?g.lineTo(X(x),Y(s.g[i])):g.moveTo(X(x),Y(s.g[i]))});g.stroke();
+  // error chart
+  ({g,w,h}=setup(c2));
+  const mx=Math.max(...M.stages.map(q=>Math.max(q.tr,q.te)));
+  const f=frame(g,w,h,0,150,0,Math.ceil(mx),'Number of trees','RMSE (°)');
+  [['tr','--a'],['te','--b']].forEach(([k,col])=>{g.strokeStyle=css(col);g.lineWidth=2;g.beginPath();M.stages.forEach((q,i)=>{i?g.lineTo(f.X(i),f.Y(q[k])):g.moveTo(f.X(i),f.Y(q[k]))});g.stroke()});
+  g.strokeStyle=css('--mute');g.setLineDash([3,3]);g.beginPath();g.moveTo(f.X(n),10);g.lineTo(f.X(n),h-30);g.stroke();g.setLineDash([]);
+  // stats
+  let best=0;M.stages.forEach((q,i)=>{if(q.te<M.stages[best].te)best=i});
+  sTr.textContent=s.tr.toFixed(2)+'°';sTe.textContent=s.te.toFixed(2)+'°';sBest.textContent=best;
+  const gap=s.te-s.tr;
+  verdict.textContent=n<=3?'Too few trees: the curve is still a rough sketch (underfitting).':
+   (n>best+25&&gap>1.2)?'Past the best point. Training error keeps falling while held-out error rises, so the model is fitting noise.':
+   (Math.abs(n-best)<=15?'Close to the sweet spot for these settings.':'Held-out error is still improving, so more trees will help.');
+  ntO.textContent=n;lrO.textContent=(+lr.value).toFixed(2);mdO.textContent=mdp.value;nsO.textContent=ns.value;
+}
+const nt=document.getElementById('nt'),lr=document.getElementById('lr'),mdp=document.getElementById('md'),ns=document.getElementById('ns');
+const c1=document.getElementById('c1'),c2=document.getElementById('c2');
+['lr','md','ns'].forEach(id=>document.getElementById(id).oninput=()=>{fit();draw()});
+nt.oninput=draw;addEventListener('resize',draw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw);
+fit();draw();
+
+// ---------- copy ----------
+cp.onclick=()=>{const t=codeBlk.textContent;const done=()=>{cp.textContent='Copied';setTimeout(()=>cp.textContent='Copy code',1500)};
+ try{navigator.clipboard.writeText(t).then(done,()=>sel())}catch(e){sel()}
+ function sel(){const r=document.createRange();r.selectNodeContents(codeBlk);const s=getSelection();s.removeAllRanges();s.addRange(r);cp.textContent='Selected: press copy'}};
+
+// ---------- quiz ----------
+const Q=[
+["You have 40 participants with 30 strides each. How should you split data for validation?",["Random 80/20 split of all strides","Hold out whole participants (GroupKFold)","Hold out the last 20% of rows"],1,"Strides from one person are near-duplicates, so random splits leak identity and inflate scores."],
+["Training error keeps falling but held-out error rises. What should you try?",["More trees","Lower learning rate, shallower trees, early stopping","Remove regularisation"],1,"Those changes make the model more conservative, which closes the gap."],
+["A new participant walks faster than anyone in training. What will XGBoost do?",["Extrapolate the trend upward","Stay near the values from the fastest training walkers","Throw an error"],1,"Trees average training samples, so predictions stay within the seen range."],
+["Which is usually the best first step for improving a biomechanics model?",["Grid-search 10,000 settings","Engineer features like peaks, ROM and symmetry","Use max_depth 12"],1,"Informative features usually beat heavy tuning, especially on small datasets."]];
+const qz=document.getElementById('qz');
+Q.forEach(([q,o,a,e])=>{const d=document.createElement('div');d.innerHTML='<h3></h3>';d.firstChild.textContent=q;
+ const fb=document.createElement('div');fb.className='fb';
+ o.forEach((t,i)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{[...d.querySelectorAll('button')].forEach(x=>x.className='');b.className=i===a?'ok':'no';fb.textContent=i===a?'Correct. '+e:'Not quite. Try another option.'};d.appendChild(b)});
+ d.appendChild(fb);qz.appendChild(d)});
+</script>
+</body>
+</html>
