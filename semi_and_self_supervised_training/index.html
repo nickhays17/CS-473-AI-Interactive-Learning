@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Semi-supervised learning and co-training</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#f4f6f9;--sf:#fff;--ink:#16202e;--mute:#5b6778;--line:#d6dce5;--c0:#2c6fd6;--c1:#d98200;--A:#7a3fd1;--B:#0d9470;--bad:#d1334a;--un:#9aa4b2;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f141b;--sf:#171e28;--ink:#e8edf4;--mute:#97a3b4;--line:#2a3441;--c0:#5b97f0;--c1:#f2a93b;--A:#ab8cf2;--B:#37c9a1;--bad:#ff6b7f;--un:#6b7788;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f141b;--sf:#171e28;--ink:#e8edf4;--mute:#97a3b4;--line:#2a3441;--c0:#5b97f0;--c1:#f2a93b;--A:#ab8cf2;--B:#37c9a1;--bad:#ff6b7f;--un:#6b7788;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Bricolage Grotesque",system-ui,sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:28px 18px 48px}
+h1{font-size:clamp(26px,4.5vw,40px);line-height:1.1;margin:0 0 8px;letter-spacing:-.02em}
+h2{font-size:19px;margin:28px 0 8px}
+p{margin:0 0 10px}.lede{color:var(--mute);max-width:64ch}
+.grid{display:grid;gap:18px;grid-template-columns:1fr;margin-top:20px}
+@media(min-width:860px){.grid{grid-template-columns:1.25fr 1fr}}
+.card{background:var(--sf);border:1px solid var(--line);border-radius:14px;padding:14px}
+canvas{width:100%;display:block;border-radius:8px}
+#plot{aspect-ratio:1/1;background:var(--bg)}#chart{height:110px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--sf);color:var(--ink);padding:7px 13px;border-radius:8px}
+button:hover{border-color:var(--mute)}button:focus-visible,input:focus-visible{outline:2px solid var(--A);outline-offset:2px}
+.tabs button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.go{background:var(--c0);border-color:var(--c0);color:#fff;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+label{display:flex;justify-content:space-between;gap:10px;font-size:14px;color:var(--mute);margin-top:8px}
+label b{color:var(--ink);font-weight:600}input[type=range]{width:100%}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.stat{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.stat span{display:block;font-size:12px;color:var(--mute)}.stat b{font-size:20px}
+#log{min-height:3.2em;padding:10px 12px;border-left:3px solid var(--A);background:var(--bg);border-radius:0 8px 8px 0;font-size:14px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mute);margin-top:10px}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:-1px;margin-right:5px}
+ul{padding-left:20px;margin:0 0 10px}li{margin-bottom:6px}
+.two{display:grid;gap:18px}@media(min-width:760px){.two{grid-template-columns:1fr 1fr}}
+</style></head><body><div class="wrap">
+<h1>Learning from labels you don’t have</h1>
+<p class="lede">Labeling data is expensive; unlabeled data is cheap. Semi-supervised learning uses a few labeled points to get started, then lets the unlabeled points help. Pick a method below and press Step.</p>
+
+<div class="grid">
+<div class="card"><canvas id="plot"></canvas>
+<div class="legend">
+<span><i class="dot" style="background:var(--c0)"></i>class 0</span><span><i class="dot" style="background:var(--c1)"></i>class 1</span>
+<span><i class="dot" style="background:var(--un)"></i>unlabeled</span><span>big outlined = your labels</span><span style="color:var(--bad)">× = wrong pseudo-label</span>
+</div></div>
+
+<div class="card">
+<div class="tabs" role="group" aria-label="Method">
+<button data-m="sup" aria-pressed="false">Supervised only</button>
+<button data-m="self" aria-pressed="false">Self-training</button>
+<button data-m="co" aria-pressed="true">Co-training</button></div>
+<div id="log"></div>
+<div class="row"><button class="go" id="step">Step</button><button id="play">Play</button><button id="reset">Reset run</button><button id="newd">New data</button></div>
+<div class="stats">
+<div class="stat"><span>Accuracy</span><b id="acc">–</b></div>
+<div class="stat"><span>Baseline</span><b id="base">–</b></div>
+<div class="stat"><span>Pseudo-labels right</span><b id="pl">–</b></div></div>
+<canvas id="chart"></canvas>
+<div style="font-size:12px;color:var(--mute);margin-top:4px">Accuracy by round (dashed = supervised baseline)</div>
+<label>Labeled points per class <b id="vn">3</b></label><input id="n" type="range" min="1" max="10" value="3">
+<label>Points labeled per round <b id="vk">3</b></label><input id="k" type="range" min="1" max="8" value="3">
+<label>Correlation between the two views <b id="vr">0</b></label><input id="r" type="range" min="0" max="0.95" step="0.05" value="0">
+<label style="align-items:center"><span>Show true classes of unlabeled points</span><input id="truth" type="checkbox"></label>
+</div></div>
+
+<div class="two">
+<div><h2>What you’re looking at</h2>
+<p>Each dot has two features: horizontal position (the <b>x-view</b>) and vertical position (the <b>y-view</b>). Two classes are mixed together, so no single feature separates them perfectly. The shaded background is the current model’s best guess for each region.</p>
+<p>Only the big outlined dots have labels. Everything else starts grey. Each Step lets the model label some grey points itself, which are called <b>pseudo-labels</b>, and retrain on them.</p></div>
+<div><h2>Things to try</h2><ul>
+<li>Set labeled points to 1 and compare all three methods after a few steps. Supervised-only barely moves; the others can improve.</li>
+<li>Run self-training for many rounds and watch the red × marks. A wrong pseudo-label becomes training data and can pull the boundary the wrong way.</li>
+<li>In co-training, raise the view correlation to about 0.9. Both views now see nearly the same thing, so they can’t correct each other and the advantage shrinks.</li></ul></div></div>
+<h2>Why co-training works</h2>
+<p>Co-training assumes each example has two <b>views</b> that are each enough to learn from and are roughly independent given the class. A point that sits in the ambiguous middle of the x-view may be clearly class 1 in the y-view. The y-view model labels it confidently and passes it to the x-view model, which learns something it could not have worked out alone. Each model keeps supplying the other with examples it finds hard. The purple ring marks points labeled by the x-view model, and the green ring marks points labeled by the y-view model.</p>
+</div>
+<script>
+const $=s=>document.querySelector(s),root=document.documentElement;
+const COPY={sup:"Supervised only: the model learns from the outlined labeled points and ignores everything grey. With so little data its boundary is a rough guess. This is your baseline.",
+self:"Self-training: one model sees both features. Each round it labels the grey points it is most sure about, adds them to its training set, and retrains. It learns from its own predictions, so early mistakes can compound.",
+co:"Co-training: two models, each seeing one feature only. Each round, the x-view model (purple) and the y-view model (green) label the points they are most sure about and give them to the other model as training data."};
+let seed,dataSeed=7,P=[],S={},mode="co",nSeed=3,K=3,rho=0,timer=null,showTruth=false;
+const rnd=()=>(seed=(seed*1664525+1013904223)>>>0)/4294967296;
+const gauss=()=>Math.sqrt(-2*Math.log(rnd()||1e-9))*Math.cos(2*Math.PI*rnd());
+const col=n=>getComputedStyle(root).getPropertyValue(n).trim();
+function init(){
+ seed=dataSeed;P=[];
+ for(let i=0;i<240;i++){const c=i%2,m=c?1.1:-1.1,z1=gauss(),z2=rho*z1+Math.sqrt(1-rho*rho)*gauss();P.push({x:m+z1,y:m+z2,c})}
+ const seeds=[];for(const c of[0,1]){const ids=P.map((p,i)=>i).filter(i=>P[i].c==c);for(let j=0;j<nSeed;j++)seeds.push(ids.splice(Math.floor(rnd()*ids.length),1)[0])}
+ resetRun(seeds);
+}
+let SEEDS=[];
+function resetRun(s){
+ if(s)SEEDS=s;stop();
+ S={};for(const m of["sup","self","co"]){S[m]={lab:{},hist:[],msg:"",ok:0,bad:0};SEEDS.forEach(i=>S[m].lab[i]={l:P[i].c,by:"seed"})}
+ for(const m in S)S[m].hist.push(acc(m));
+ S[mode].msg="";render();
+}
+function fit(vals){const m=[0,0],v=[4,4];
+ for(const c of[0,1]){const a=vals.filter(t=>t[1]==c).map(t=>t[0]),n=a.length;
+  if(n){m[c]=a.reduce((s,x)=>s+x,0)/n;v[c]=(a.reduce((s,x)=>s+(x-m[c])**2,0)+1)/(n+1)}}
+ return{m,v}}
+const ll=(M,x,c)=>-0.5*Math.log(M.v[c])-(x-M.m[c])**2/(2*M.v[c]);
+const lo1=(M,x)=>ll(M,x,1)-ll(M,x,0);
+function models(m){
+ const e=Object.values(S[m].lab);
+ const pa=m=="co"?e.filter(t=>t.by!="A"):e, pb=m=="co"?e.filter(t=>t.by!="B"):e;
+ const idx=o=>Object.keys(S[m].lab).filter(i=>o.includes(S[m].lab[i]));
+ return{mx:fit(idx(pa).map(i=>[P[i].x,S[m].lab[i].l])),my:fit(idx(pb).map(i=>[P[i].y,S[m].lab[i].l]))}}
+const lo=(Mo,p)=>lo1(Mo.mx,p.x)+lo1(Mo.my,p.y);
+function acc(m){const Mo=models(m);return P.filter(p=>(lo(Mo,p)>0)==(p.c==1)).length/P.length}
+function step(){
+ const st=S[mode];if(mode=="sup"){st.msg="Supervised-only has no steps. It uses just the labeled points. Switch to self-training or co-training.";render();return false}
+ const un=P.map((p,i)=>i).filter(i=>!(i in st.lab));if(!un.length){st.msg="Every point is labeled. Reset the run to try again.";render();return false}
+ const Mo=models(mode),round=st.hist.length;
+ const take=(sc,n,by,pool)=>{const pick=pool.map(i=>[i,Math.abs(sc(P[i]))]).sort((a,b)=>b[1]-a[1]).slice(0,n);let ok=0;
+  pick.forEach(([i])=>{const l=sc(P[i])>0?1:0;st.lab[i]={l,by};l==P[i].c?(ok++,st.ok++):st.bad++});return[pick.map(t=>t[0]),ok]};
+ if(mode=="self"){const[g,ok]=take(p=>lo(Mo,p),K*2,"S",un);st.msg=`Round ${round}: labeled ${g.length} points it was most confident about (${ok} correct). Retrained on the larger set.`}
+ else{const[ga,oa]=take(p=>lo1(Mo.mx,p.x),K,"A",un),rest=un.filter(i=>!(i in st.lab)),[gb,ob]=take(p=>lo1(Mo.my,p.y),K,"B",rest);
+  st.msg=`Round ${round}: the x-view model labeled ${ga.length} points for the y-view model (${oa} correct). The y-view model labeled ${gb.length} for the x-view model (${ob} correct).`}
+ st.hist.push(acc(mode));render();return true}
+function stop(){clearInterval(timer);timer=null;$("#play").textContent="Play"}
+function setup(c){const d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*d;c.height=h*d;const g=c.getContext("2d");g.setTransform(d,0,0,d,0,0);return[g,w,h]}
+function boundary(M){let best=null;for(let x=-4;x<4;x+=0.02)if(lo1(M,x)*lo1(M,x+0.02)<0)return x+0.01;return best}
+function render(){
+ const st=S[mode],[g,w,h]=setup($("#plot")),R=4,X=v=>(v+R)/(2*R)*w,Y=v=>h-(v+R)/(2*R)*h,Mo=models(mode),c=[col("--c0"),col("--c1")];
+ g.clearRect(0,0,w,h);
+ for(let px=0;px<w;px+=12)for(let py=0;py<h;py+=12){const x=(px+6)/w*2*R-R,y=(h-py-6)/h*2*R-R,p=1/(1+Math.exp(-lo(Mo,{x,y})));
+  g.globalAlpha=0.05+0.2*Math.abs(p-.5)*2;g.fillStyle=c[p>.5?1:0];g.fillRect(px,py,12,12)}
+ g.globalAlpha=1;
+ if(mode=="co"){g.setLineDash([6,5]);g.lineWidth=2;const bx=boundary(Mo.mx),by=boundary(Mo.my);
+  if(bx!=null){g.strokeStyle=col("--A");g.beginPath();g.moveTo(X(bx),0);g.lineTo(X(bx),h);g.stroke()}
+  if(by!=null){g.strokeStyle=col("--B");g.beginPath();g.moveTo(0,Y(by));g.lineTo(w,Y(by));g.stroke()}g.setLineDash([])}
+ P.forEach((p,i)=>{const L=st.lab[i],x=X(p.x),y=Y(p.y);g.beginPath();
+  if(!L){g.arc(x,y,3.2,0,7);g.fillStyle=showTruth?c[p.c]:col("--un");g.globalAlpha=showTruth?.6:.8;g.fill();g.globalAlpha=1;return}
+  const seedPt=L.by=="seed";g.arc(x,y,seedPt?7.5:5,0,7);g.fillStyle=c[L.l];g.fill();
+  g.lineWidth=seedPt?2.5:2;g.strokeStyle=seedPt?col("--ink"):L.by=="A"?col("--A"):L.by=="B"?col("--B"):col("--mute");g.stroke();
+  if(L.l!=p.c){g.strokeStyle=col("--bad");g.lineWidth=2.5;g.beginPath();g.moveTo(x-5,y-5);g.lineTo(x+5,y+5);g.moveTo(x+5,y-5);g.lineTo(x-5,y+5);g.stroke()}});
+ g.fillStyle=col("--mute");g.font="12px system-ui";g.fillText("x-view →",w-62,h-8);g.fillText("y-view ↑",8,16);
+ drawChart(st);
+ $("#acc").textContent=(st.hist.at(-1)*100).toFixed(0)+"%";$("#base").textContent=(S.sup.hist[0]*100).toFixed(0)+"%";
+ const t=st.ok+st.bad;$("#pl").textContent=t?`${st.ok} / ${t}`:"–";
+ $("#log").textContent=st.msg||COPY[mode];
+ document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.m==mode));
+}
+function drawChart(st){const[g,w,h]=setup($("#chart")),lo_=0.6,hi=1,Yv=a=>h-6-(Math.min(hi,Math.max(lo_,a))-lo_)/(hi-lo_)*(h-12),n=Math.max(st.hist.length,8);
+ g.strokeStyle=col("--line");g.lineWidth=1;[0.6,0.8,1].forEach(a=>{g.beginPath();g.moveTo(0,Yv(a));g.lineTo(w,Yv(a));g.stroke()});
+ g.setLineDash([4,4]);g.strokeStyle=col("--mute");g.beginPath();g.moveTo(0,Yv(S.sup.hist[0]));g.lineTo(w,Yv(S.sup.hist[0]));g.stroke();g.setLineDash([]);
+ g.strokeStyle=col(mode=="co"?"--A":"--c0");g.lineWidth=2.5;g.beginPath();
+ st.hist.forEach((a,i)=>{const x=6+i/(n-1)*(w-12);i?g.lineTo(x,Yv(a)):g.moveTo(x,Yv(a))});g.stroke()}
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{stop();mode=b.dataset.m;render()});
+$("#step").onclick=()=>{stop();step()};
+$("#play").onclick=()=>{if(timer)return stop();$("#play").textContent="Pause";timer=setInterval(()=>{if(!step())stop()},650)};
+$("#reset").onclick=()=>resetRun();
+$("#newd").onclick=()=>{dataSeed+=11;init()};
+$("#n").oninput=e=>{nSeed=+e.target.value;$("#vn").textContent=nSeed;init()};
+$("#k").oninput=e=>{K=+e.target.value;$("#vk").textContent=K};
+$("#r").oninput=e=>{rho=+e.target.value;$("#vr").textContent=rho;init()};
+$("#truth").onchange=e=>{showTruth=e.target.checked;render()};
+addEventListener("resize",render);matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+document.fonts&&document.fonts.ready.then(render);
+init();
+</script></body></html>
