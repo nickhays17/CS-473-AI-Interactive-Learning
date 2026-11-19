@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PCA, by hand</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap">
+<style>
+:root{--bg:#f6f7f4;--surface:#ffffff;--ink:#1d2a2e;--muted:#5d6b70;--line:#d9dfdc;--pt:#7d8d93;--pc1:#0d7f78;--pc2:#c2650f;--user:#4b4fc4;--proj:#9aa6ab;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14191b;--surface:#1c2326;--ink:#e6ecea;--muted:#9aa8ac;--line:#2e393c;--pt:#7f9096;--pc1:#3cc4b9;--pc2:#f0974a;--user:#8f93ff;--proj:#56666b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14191b;--surface:#1c2326;--ink:#e6ecea;--muted:#9aa8ac;--line:#2e393c;--pt:#7f9096;--pc1:#3cc4b9;--pc2:#f0974a;--user:#8f93ff;--proj:#56666b;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:32px 20px 64px}
+h1,h2{font-family:"Newsreader",Georgia,serif;font-weight:600;line-height:1.15;margin:0}
+h1{font-size:2.6rem;margin-bottom:12px}
+h2{font-size:1.6rem;margin:56px 0 8px}
+p{max-width:64ch;margin:0 0 12px}
+.lede{font-size:1.1rem;color:var(--muted)}
+.row{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:24px;align-items:start;margin-top:20px}
+@media(max-width:760px){.row{grid-template-columns:1fr}h1{font-size:2rem}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+canvas{display:block;width:100%;border-radius:6px}
+#c1{aspect-ratio:1/1;background:var(--surface)}
+#c2{height:120px}
+#c3{height:260px}
+label{display:flex;justify-content:space-between;font-size:.92rem;margin-top:14px}
+label b{font-weight:600}
+input[type=range]{width:100%;accent-color:var(--pc1);margin:4px 0 0}
+input.user{accent-color:var(--user)}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+button{font:inherit;font-size:.9rem;background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--pc1)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--user);outline-offset:2px}
+.chk{display:flex;gap:8px;align-items:center;margin-top:14px;font-size:.92rem}
+.meter{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:6px 0 4px;display:flex}
+.meter i{display:block;height:100%}
+.stat{font-size:.92rem;color:var(--muted);display:flex;justify-content:space-between}
+.msg{min-height:3em;margin-top:12px;font-size:.95rem}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.85rem;color:var(--muted);margin-top:10px}
+.legend span::before{content:"";display:inline-block;width:14px;height:3px;margin-right:6px;vertical-align:middle;background:var(--c)}
+ol{padding-left:20px;max-width:64ch}
+li{margin-bottom:8px}
+small{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>PCA, by hand</h1>
+<p class="lede">Principal component analysis finds the directions along which your data varies most, so you can describe it with fewer numbers. Play with the two demos below to see why that works.</p>
+
+<h2>1. Find the direction with the most spread</h2>
+<p>Each dot is a sample with two features. Reshape the cloud, then rotate the purple axis yourself. Every dot is projected onto it (grey lines). A good axis keeps the projected points spread out and the grey lines short.</p>
+<div class="row">
+  <div class="panel"><canvas id="c1" aria-label="Scatter plot with a rotatable axis and projections"></canvas>
+    <div class="legend"><span style="--c:var(--user)">your axis</span><span style="--c:var(--pc1)">PC1</span><span style="--c:var(--pc2)">PC2</span><span style="--c:var(--proj)">projection error</span></div></div>
+  <div>
+    <div class="panel">
+      <label for="elong"><span>Elongation</span><b id="elongV"></b></label>
+      <input type="range" id="elong" min="1" max="6" step="0.1" value="3.2">
+      <label for="tilt"><span>Cloud tilt</span><b id="tiltV"></b></label>
+      <input type="range" id="tilt" min="-90" max="90" step="1" value="35">
+      <label for="axis"><span>Your axis angle</span><b id="axisV"></b></label>
+      <input type="range" id="axis" class="user" min="0" max="180" step="1" value="100">
+      <div class="chk"><input type="checkbox" id="showpc" checked><label for="showpc" style="margin:0">Show principal components</label></div>
+      <div class="btns"><button id="snap">Snap to PC1</button><button id="resample">New sample</button></div>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <div class="stat"><span>Variance kept by your axis</span><b id="kept"></b></div>
+      <div class="meter"><i id="mKept" style="background:var(--user)"></i><i id="mLost" style="background:var(--proj)"></i></div>
+      <div class="stat"><span>Lost to projection</span><b id="lost"></b></div>
+      <div class="msg" id="msg"></div>
+    </div>
+  </div>
+</div>
+<div class="panel" style="margin-top:20px">
+  <p style="margin-bottom:8px"><b>Variance kept at every angle.</b> The peak is PC1. The dip, exactly 90° away, is PC2.</p>
+  <canvas id="c2" aria-label="Variance kept as a function of axis angle"></canvas>
+</div>
+<p style="margin-top:16px">PC1 and PC2 are always perpendicular. Together they are a rotated set of axes that line up with the cloud. They come from the eigenvectors of the covariance matrix, and each eigenvalue is the variance along its axis.</p>
+
+<h2>2. Many features, few components</h2>
+<p>Real data has dozens or hundreds of features, but they are often driven by a few hidden factors. Here, 10 features are generated from a small number of hidden factors plus noise. The scree plot shows how much variance each component explains. Choose how many components to keep.</p>
+<div class="row">
+  <div class="panel"><canvas id="c3" aria-label="Scree plot of explained variance"></canvas>
+    <div class="legend"><span style="--c:var(--pc1)">kept components</span><span style="--c:var(--proj)">dropped</span><span style="--c:var(--pc2)">cumulative variance</span></div></div>
+  <div>
+    <div class="panel">
+      <label for="lat"><span>Hidden factors in the data</span><b id="latV"></b></label>
+      <input type="range" id="lat" min="1" max="5" step="1" value="3">
+      <label for="noise"><span>Noise</span><b id="noiseV"></b></label>
+      <input type="range" id="noise" min="0.1" max="2" step="0.05" value="0.6">
+      <label for="k"><span>Components to keep</span><b id="kV"></b></label>
+      <input type="range" id="k" min="1" max="10" step="1" value="3">
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <div class="stat"><span>Variance retained</span><b id="ret"></b></div>
+      <div class="meter"><i id="mRet" style="background:var(--pc1)"></i></div>
+      <div class="msg" id="msg2"></div>
+    </div>
+  </div>
+</div>
+
+<h2>The recipe</h2>
+<ol>
+  <li><b>Standardize</b> each feature (subtract the mean, usually divide by the standard deviation) so no feature dominates just because of its units.</li>
+  <li><b>Compute the covariance</b> (or correlation) matrix, which records how every pair of features moves together.</li>
+  <li><b>Find eigenvectors and eigenvalues.</b> Eigenvectors are the component directions, and eigenvalues are the variance along each.</li>
+  <li><b>Sort</b> by eigenvalue and keep the top k components.</li>
+  <li><b>Project</b> your data onto those k directions. You now have k features per sample instead of the original many.</li>
+</ol>
+<p><small>Caveats: PCA only captures linear structure, it is sensitive to feature scaling, and high variance does not always mean useful for your prediction task.</small></p>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function rng(seed){return()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function gauss(r){return Math.sqrt(-2*Math.log(r()+1e-12))*Math.cos(2*Math.PI*r())}
+function setup(c){const d=window.devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*d;c.height=h*d;const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);return{x,w,h}}
+const rad=a=>a*Math.PI/180;
+
+/* ---------- Demo 1 ---------- */
+let seed=7,Z=[];
+function resample(){const r=rng(seed);Z=[];for(let i=0;i<160;i++)Z.push([gauss(r),gauss(r)])}
+function data(){
+  const e=+$('elong').value,t=rad(+$('tilt').value),s1=1.3,s2=1.3/e,c=Math.cos(t),s=Math.sin(t);
+  const P=Z.map(([a,b])=>{const u=a*s1,v=b*s2;return[u*c-v*s,u*s+v*c]});
+  const n=P.length,mx=P.reduce((q,p)=>q+p[0],0)/n,my=P.reduce((q,p)=>q+p[1],0)/n;
+  const Q=P.map(p=>[p[0]-mx,p[1]-my]);
+  let sxx=0,sxy=0,syy=0;Q.forEach(([x,y])=>{sxx+=x*x;sxy+=x*y;syy+=y*y});
+  sxx/=n-1;sxy/=n-1;syy/=n-1;
+  const tr=sxx+syy,d=Math.sqrt((sxx-syy)**2/4+sxy*sxy);
+  return{Q,sxx,sxy,syy,tr,l1:tr/2+d,l2:tr/2-d,pa:0.5*Math.atan2(2*sxy,sxx-syy)};
+}
+function draw1(){
+  const D=data(),{x,w,h}=setup($('c1')),R=3.4,sc=w/(2*R),X=v=>w/2+v*sc,Y=v=>h/2-v*sc;
+  x.clearRect(0,0,w,h);
+  x.strokeStyle=css('--line');x.lineWidth=1;
+  x.beginPath();x.moveTo(0,h/2);x.lineTo(w,h/2);x.moveTo(w/2,0);x.lineTo(w/2,h);x.stroke();
+  const a=rad(+$('axis').value),ux=Math.cos(a),uy=Math.sin(a);
+  // projections
+  x.strokeStyle=css('--proj');x.lineWidth=1;x.globalAlpha=.7;x.beginPath();
+  D.Q.forEach(([px,py])=>{const k=px*ux+py*uy;x.moveTo(X(px),Y(py));x.lineTo(X(k*ux),Y(k*uy))});x.stroke();x.globalAlpha=1;
+  // axis
+  x.strokeStyle=css('--user');x.lineWidth=2.5;x.beginPath();x.moveTo(X(-R*2*ux),Y(-R*2*uy));x.lineTo(X(R*2*ux),Y(R*2*uy));x.stroke();
+  // projected points
+  x.fillStyle=css('--user');
+  D.Q.forEach(([px,py])=>{const k=px*ux+py*uy;x.beginPath();x.arc(X(k*ux),Y(k*uy),2.4,0,7);x.fill()});
+  // points
+  x.fillStyle=css('--pt');
+  D.Q.forEach(([px,py])=>{x.beginPath();x.arc(X(px),Y(py),3.2,0,7);x.fill()});
+  // PCs
+  if($('showpc').checked){
+    const arrow=(ang,len,col)=>{const ex=Math.cos(ang)*len,ey=Math.sin(ang)*len;x.strokeStyle=col;x.fillStyle=col;x.lineWidth=3;
+      x.beginPath();x.moveTo(X(0),Y(0));x.lineTo(X(ex),Y(ey));x.stroke();
+      const th=Math.atan2(-(Y(ey)-Y(0)),X(ex)-X(0)),hx=X(ex),hy=Y(ey);
+      x.beginPath();x.moveTo(hx,hy);x.lineTo(hx-11*Math.cos(th-.4),hy+11*Math.sin(th-.4));x.lineTo(hx-11*Math.cos(th+.4),hy+11*Math.sin(th+.4));x.fill()};
+    arrow(D.pa,2*Math.sqrt(D.l1),css('--pc1'));
+    arrow(D.pa+Math.PI/2,2*Math.sqrt(Math.max(D.l2,0)),css('--pc2'));
+  }
+  // readouts
+  const v=D.sxx*ux*ux+2*D.sxy*ux*uy+D.syy*uy*uy,pct=v/D.tr*100;
+  $('kept').textContent=pct.toFixed(1)+'%';$('lost').textContent=(100-pct).toFixed(1)+'%';
+  $('mKept').style.width=pct+'%';$('mLost').style.width=(100-pct)+'%';
+  $('elongV').textContent=(+$('elong').value).toFixed(1)+'×';$('tiltV').textContent=$('tilt').value+'°';$('axisV').textContent=$('axis').value+'°';
+  let pa=(D.pa*180/Math.PI+180)%180,diff=Math.min(Math.abs(+$('axis').value-pa),180-Math.abs(+$('axis').value-pa));
+  const best=D.l1/D.tr*100;
+  $('msg').textContent=diff<2.5?'This is PC1. No other direction keeps more variance ('+best.toFixed(1)+'%).'
+    :diff>87.5?'This is PC2, the direction with the least variance. Almost everything is lost here.'
+    :'PC1 sits at '+pa.toFixed(0)+'° and would keep '+best.toFixed(1)+'%. Try rotating toward it.';
+  draw2(D);
+}
+function draw2(D){
+  const {x,w,h}=setup($('c2')),m=8;x.clearRect(0,0,w,h);
+  const f=a=>{const u=Math.cos(rad(a)),v=Math.sin(rad(a));return(D.sxx*u*u+2*D.sxy*u*v+D.syy*v*v)/D.tr};
+  const X=a=>m+a/180*(w-2*m),Y=p=>h-m-p*(h-2*m);
+  x.strokeStyle=css('--user');x.lineWidth=2;x.beginPath();
+  for(let a=0;a<=180;a++){a?x.lineTo(X(a),Y(f(a))):x.moveTo(X(a),Y(f(a)))}x.stroke();
+  const pa=(D.pa*180/Math.PI+180)%180;
+  [[pa,'--pc1','PC1'],[(pa+90)%180,'--pc2','PC2']].forEach(([a,c,l])=>{x.fillStyle=css(c);x.beginPath();x.arc(X(a),Y(f(a)),5,0,7);x.fill();
+    x.font='12px system-ui';x.fillText(l,Math.min(X(a)+8,w-30),Y(f(a))+(l=='PC1'?12:-6))});
+  const cur=+$('axis').value;x.strokeStyle=css('--user');x.setLineDash([4,4]);x.beginPath();x.moveTo(X(cur),0);x.lineTo(X(cur),h);x.stroke();x.setLineDash([]);
+  x.fillStyle=css('--muted');x.font='11px system-ui';x.fillText('0°',m,h-1);x.fillText('180°',w-m-24,h-1);
+}
+$('snap').onclick=()=>{const D=data();$('axis').value=Math.round((D.pa*180/Math.PI+180)%180);draw1()};
+$('resample').onclick=()=>{seed=Math.floor(Math.random()*1e6);resample();draw1()};
+['elong','tilt','axis','showpc'].forEach(i=>$(i).addEventListener('input',draw1));
+
+/* ---------- Demo 2 ---------- */
+function eig(A){const n=A.length;A=A.map(r=>r.slice());
+  for(let it=0;it<800;it++){let p=0,q=1,m=0;
+    for(let i=0;i<n;i++)for(let j=i+1;j<n;j++)if(Math.abs(A[i][j])>m){m=Math.abs(A[i][j]);p=i;q=j}
+    if(m<1e-10)break;
+    const th=(A[q][q]-A[p][p])/(2*A[p][q]),t=(th>=0?1:-1)/(Math.abs(th)+Math.sqrt(th*th+1)),c=1/Math.sqrt(t*t+1),s=t*c;
+    for(let k=0;k<n;k++){const a=A[k][p],b=A[k][q];A[k][p]=c*a-s*b;A[k][q]=s*a+c*b}
+    for(let k=0;k<n;k++){const a=A[p][k],b=A[q][k];A[p][k]=c*a-s*b;A[q][k]=s*a+c*b}}
+  return A.map((r,i)=>r[i]).sort((a,b)=>b-a)}
+const P=10,N=300;let base=null,ev=[];
+function makeBase(){const r=rng(42);base={Zs:Array.from({length:N},()=>Array.from({length:5},()=>gauss(r))),W:Array.from({length:P},()=>Array.from({length:5},()=>gauss(r))),E:Array.from({length:N},()=>Array.from({length:P},()=>gauss(r)))}}
+function compute(){
+  const L=+$('lat').value,ns=+$('noise').value;
+  const X=base.Zs.map((z,i)=>Array.from({length:P},(_,j)=>{let s=0;for(let l=0;l<L;l++)s+=z[l]*base.W[j][l];return s+ns*base.E[i][j]}));
+  const mean=Array(P).fill(0),sd=Array(P).fill(0);
+  X.forEach(r=>r.forEach((v,j)=>mean[j]+=v/N));
+  X.forEach(r=>r.forEach((v,j)=>sd[j]+=(v-mean[j])**2/(N-1)));
+  const C=Array.from({length:P},()=>Array(P).fill(0));
+  X.forEach(r=>{for(let a=0;a<P;a++)for(let b=0;b<P;b++)C[a][b]+=(r[a]-mean[a])*(r[b]-mean[b])/(N-1)/Math.sqrt(sd[a]*sd[b])});
+  const e=eig(C),tot=e.reduce((a,b)=>a+b,0);ev=e.map(v=>Math.max(v,0)/tot);
+}
+function draw3(){
+  $('latV').textContent=$('lat').value;$('noiseV').textContent=(+$('noise').value).toFixed(2);$('kV').textContent=$('k').value;
+  const k=+$('k').value,{x,w,h}=setup($('c3')),ml=36,mb=24,mt=10,bw=(w-ml-8)/P;x.clearRect(0,0,w,h);
+  const Y=v=>mt+(1-v)*(h-mb-mt);
+  x.font='11px system-ui';x.fillStyle=css('--muted');x.strokeStyle=css('--line');x.lineWidth=1;
+  [0,.25,.5,.75,1].forEach(v=>{x.beginPath();x.moveTo(ml,Y(v));x.lineTo(w-8,Y(v));x.stroke();x.fillText(Math.round(v*100)+'%',2,Y(v)+4)});
+  let cum=0,pts=[];
+  ev.forEach((v,i)=>{cum+=v;x.fillStyle=i<k?css('--pc1'):css('--proj');
+    x.fillRect(ml+i*bw+bw*.15,Y(v),bw*.7,h-mb-Y(v));
+    x.fillStyle=css('--muted');x.fillText('PC'+(i+1),ml+i*bw+bw*.1,h-8);pts.push([ml+i*bw+bw/2,Y(cum)])});
+  x.strokeStyle=css('--pc2');x.lineWidth=2;x.beginPath();pts.forEach((p,i)=>i?x.lineTo(...p):x.moveTo(...p));x.stroke();
+  x.fillStyle=css('--pc2');pts.forEach(p=>{x.beginPath();x.arc(p[0],p[1],3,0,7);x.fill()});
+  const ret=ev.slice(0,k).reduce((a,b)=>a+b,0)*100;
+  $('ret').textContent=ret.toFixed(1)+'%';$('mRet').style.width=ret+'%';
+  const L=+$('lat').value;
+  $('msg2').textContent=k<L?'You are keeping fewer components than there are hidden factors, so real signal is being thrown away.'
+   :k==L?'Keeping '+k+' components matches the '+L+' hidden factor'+(L>1?'s':'')+'. Look for the “elbow” in the bars right here.'
+   :'Past the elbow, extra components mostly add noise. You are compressing '+P+' features into '+k+'.';
+}
+['lat','noise'].forEach(i=>$(i).addEventListener('input',()=>{compute();draw3()}));
+$('k').addEventListener('input',draw3);
+
+resample();makeBase();compute();
+function all(){draw1();draw3()}
+all();addEventListener('resize',all);
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',all);
+</script>
+</body>
+</html>
