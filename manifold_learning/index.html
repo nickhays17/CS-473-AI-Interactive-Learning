@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Manifold learning: unrolling the Swiss roll</title>
+<style>
+:root{--bg:#eef2f6;--panel:#fff;--ink:#14213d;--muted:#566377;--line:#cbd5e1;--accent:#1d5fd1;--bad:#d62839;--ok:#1b8a5a;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1620;--panel:#18222f;--ink:#e6ecf4;--muted:#93a1b5;--line:#2a3646;--accent:#6ea2ff;--bad:#ff6b7a;--ok:#4fd197;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1620;--panel:#18222f;--ink:#e6ecf4;--muted:#93a1b5;--line:#2a3646;--accent:#6ea2ff;--bad:#ff6b7a;--ok:#4fd197;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 18px 48px}
+h1{font:600 clamp(26px,5vw,38px)/1.15 Georgia,"Iowan Old Style",serif;margin:0 0 10px;letter-spacing:-.01em}
+.lede{max-width:66ch;color:var(--muted);margin:0 0 22px}
+.controls{display:flex;flex-wrap:wrap;gap:14px 26px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;background:transparent;color:var(--ink);border:0;padding:7px 14px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.seg button:focus-visible,input:focus-visible,.preset:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+label{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+input[type=range]{width:130px;accent-color:var(--accent)}
+.val{color:var(--ink);font-variant-numeric:tabular-nums;min-width:2ch}
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:720px){.panes{grid-template-columns:1fr}}
+.pane{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.pane h2{font:600 17px/1.3 Georgia,serif;margin:0 0 2px}
+.pane p{margin:0 0 8px;font-size:14px;color:var(--muted)}
+canvas{width:100%;display:block;border-radius:6px;cursor:crosshair}
+.status{margin:16px 0;padding:12px 16px;border-left:4px solid var(--accent);background:var(--panel);border-radius:0 8px 8px 0;font-size:15px}
+.status.bad{border-color:var(--bad)}.status.ok{border-color:var(--ok)}
+.status b{font-variant-numeric:tabular-nums}
+.try{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 26px}
+.preset{font:inherit;font-size:14px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.preset:hover{border-color:var(--accent)}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
+.notes h3{font:600 16px Georgia,serif;margin:0 0 4px}
+.notes p{margin:0;font-size:15px;color:var(--muted)}
+.bar{height:10px;border-radius:5px;background:linear-gradient(90deg,hsl(20 75% 55%),hsl(100 75% 50%),hsl(200 75% 55%),hsl(300 75% 55%));margin:4px 0 16px;max-width:300px}
+</style>
+</head>
+<body>
+<main>
+<h1>Manifold learning: unrolling the Swiss roll</h1>
+<p class="lede">High-dimensional data often lives on a low-dimensional sheet that is bent through space. The points below are a flat 2D sheet rolled up in 3D. Can an algorithm recover the flat sheet using only the points? Color shows position along the sheet, so you can see whether neighbors stay neighbors.</p>
+<div class="bar" role="img" aria-label="Color scale from one end of the sheet to the other"></div>
+
+<div class="controls">
+  <div class="seg" role="group" aria-label="Method">
+    <button id="mPca" aria-pressed="false">Straight-line distances (PCA)</button>
+    <button id="mIso" aria-pressed="true">Along-the-sheet distances (Isomap)</button>
+  </div>
+  <label>Neighbors k <input id="k" type="range" min="2" max="60" value="8"><span class="val" id="kv">8</span></label>
+  <label>Rotate <input id="rot" type="range" min="0" max="360" value="35"></label>
+  <label><input id="showG" type="checkbox" checked> Show neighbor graph</label>
+</div>
+
+<div class="panes">
+  <section class="pane"><h2>What the data looks like</h2><p>400 points in 3D. Drag the rotate slider, hover a point.</p><canvas id="c3"></canvas></section>
+  <section class="pane"><h2>What the algorithm recovers</h2><p>Same points, squeezed into 2D.</p><canvas id="c2"></canvas></section>
+</div>
+
+<div class="status" id="status"></div>
+
+<div class="try"><span style="align-self:center;color:var(--muted);font-size:14px">Try:</span>
+  <button class="preset" data-k="3" data-m="iso">k = 3: graph breaks apart</button>
+  <button class="preset" data-k="10" data-m="iso">k = 10: clean unroll</button>
+  <button class="preset" data-k="45" data-m="iso">k = 45: shortcuts form</button>
+  <button class="preset" data-k="10" data-m="pca">Straight-line only</button>
+</div>
+
+<div class="notes">
+  <div><h3>The manifold idea</h3><p>The data has 3 coordinates, but only 2 numbers are needed to say where a point is: how far along the roll, and how far across. The roll is a 2D manifold sitting in 3D space.</p></div>
+  <div><h3>Why straight lines fail</h3><p>Two points on neighboring layers are close in 3D yet far apart along the sheet. PCA only sees the 3D distance, so it flattens the roll like a shadow and the layers overlap.</p></div>
+  <div><h3>How Isomap fixes it</h3><p>Link each point to its k nearest neighbors, then measure distance by hopping along those links. That approximates travel along the sheet. Then place points in 2D so those distances are preserved.</p></div>
+</div>
+</main>
+
+<script>
+const N=400;
+let seed=7;function rnd(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}
+const P=[],U=[];
+for(let i=0;i<N;i++){const u=rnd(),t=1.5*Math.PI*(1+2*u);P.push([t*Math.cos(t)/10,(rnd()-.5)*2.2,t*Math.sin(t)/10]);U.push(u)}
+const E=new Float64Array(N*N);
+for(let i=0;i<N;i++)for(let j=0;j<N;j++){const a=P[i],b=P[j];E[i*N+j]=Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2])}
+
+function topEig(B,n,m){const vals=[],vecs=[];
+  for(let c=0;c<m;c++){let v=Float64Array.from({length:n},()=>rnd()-.5),val=0;
+    for(let it=0;it<120;it++){const w=new Float64Array(n);
+      for(let i=0;i<n;i++){let s=0;const r=i*n;for(let j=0;j<n;j++)s+=B[r+j]*v[j];w[i]=s}
+      for(const q of vecs){let d=0;for(let i=0;i<n;i++)d+=w[i]*q[i];for(let i=0;i<n;i++)w[i]-=d*q[i]}
+      let nr=0;for(let i=0;i<n;i++)nr+=w[i]*w[i];nr=Math.sqrt(nr)||1;val=nr;for(let i=0;i<n;i++)v[i]=w[i]/nr}
+    vals.push(val);vecs.push(v)}
+  return[vals,vecs]}
+
+function embed(D){const n=N,A=new Float64Array(n*n),rm=new Float64Array(n);let tm=0;
+  for(let i=0;i<n;i++){let s=0;for(let j=0;j<n;j++){const d=D[i*n+j];A[i*n+j]=d*d;s+=d*d}rm[i]=s/n;tm+=s}tm/=n*n;
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++)A[i*n+j]=-.5*(A[i*n+j]-rm[i]-rm[j]+tm);
+  const[vals,vecs]=topEig(A,n,2);
+  return P.map((_,i)=>[vecs[0][i]*Math.sqrt(Math.max(vals[0],0)),vecs[1][i]*Math.sqrt(Math.max(vals[1],0))])}
+
+function corr(a,b){const n=a.length;let ma=0,mb=0;for(let i=0;i<n;i++){ma+=a[i];mb+=b[i]}ma/=n;mb/=n;let s=0,x=0,y=0;
+  for(let i=0;i<n;i++){const p=a[i]-ma,q=b[i]-mb;s+=p*q;x+=p*p;y+=q*q}return s/Math.sqrt(x*y)}
+function score(emb){return Math.max(Math.abs(corr(emb.map(e=>e[0]),U)),Math.abs(corr(emb.map(e=>e[1]),U)))}
+
+function geodesic(k){
+  const adj=Array.from({length:N},()=>[]),flag=new Uint8Array(N*N),edges=[];
+  for(let i=0;i<N;i++){const idx=[...Array(N).keys()].filter(j=>j!==i).sort((a,b)=>E[i*N+a]-E[i*N+b]).slice(0,k);
+    for(const j of idx){if(flag[i*N+j])continue;flag[i*N+j]=flag[j*N+i]=1;const w=E[i*N+j];adj[i].push([j,w]);adj[j].push([i,w]);edges.push([i,j])}}
+  const D=new Float64Array(N*N).fill(Infinity);
+  for(let s=0;s<N;s++){const d=D.subarray(s*N,s*N+N),vis=new Uint8Array(N);d[s]=0;
+    for(let it=0;it<N;it++){let u=-1,b=Infinity;for(let i=0;i<N;i++)if(!vis[i]&&d[i]<b){b=d[i];u=i}
+      if(u<0)break;vis[u]=1;for(const[v,w]of adj[u])if(d[u]+w<d[v])d[v]=d[u]+w}}
+  let mx=0,broken=false;for(const v of D){if(v===Infinity)broken=true;else if(v>mx)mx=v}
+  if(broken)for(let i=0;i<D.length;i++)if(D[i]===Infinity)D[i]=mx*1.5;
+  const shortcuts=edges.filter(([i,j])=>Math.abs(U[i]-U[j])>0.15).length;
+  return{D,edges,broken,shortcuts}}
+
+const pcaEmb=embed(E),pcaScore=score(pcaEmb);
+let method='iso',k=8,iso=null,hov=-1;
+const $=id=>document.getElementById(id),c3=$('c3'),c2=$('c2');
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const col=u=>`hsl(${20+u*280} 75% 55%)`;
+let pos3=[],pos2=[];
+
+function size(c){const w=c.clientWidth,h=Math.round(w*.82),r=window.devicePixelRatio||1;c.width=w*r;c.height=h*r;c.style.height=h+'px';const x=c.getContext('2d');x.setTransform(r,0,0,r,0,0);return[x,w,h]}
+
+function draw3(){const[x,w,h]=size(c3),a=$('rot').value*Math.PI/180,tl=.35,s=Math.min(w,h)/3.6;
+  x.clearRect(0,0,w,h);
+  const pr=P.map(p=>{const x1=p[0]*Math.cos(a)+p[2]*Math.sin(a),z1=-p[0]*Math.sin(a)+p[2]*Math.cos(a);
+    const y2=p[1]*Math.cos(tl)-z1*Math.sin(tl),z2=p[1]*Math.sin(tl)+z1*Math.cos(tl);return[w/2+x1*s,h/2-y2*s,z2]});
+  pos3=pr;
+  if(method==='iso'&&$('showG').checked&&iso){
+    x.lineWidth=1;
+    for(const[i,j]of iso.edges){const bad=Math.abs(U[i]-U[j])>0.15;x.strokeStyle=bad?css('--bad'):css('--line');x.globalAlpha=bad?.9:.55;x.lineWidth=bad?1.6:.7;
+      x.beginPath();x.moveTo(pr[i][0],pr[i][1]);x.lineTo(pr[j][0],pr[j][1]);x.stroke()}
+    x.globalAlpha=1}
+  [...pr.keys()].sort((i,j)=>pr[i][2]-pr[j][2]).forEach(i=>{x.fillStyle=col(U[i]);x.beginPath();x.arc(pr[i][0],pr[i][1],3.6,0,7);x.fill()});
+  ring(x,pr)}
+
+function draw2(){const[x,w,h]=size(c2),emb=method==='iso'?iso.emb:pcaEmb;x.clearRect(0,0,w,h);
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;for(const e of emb){x0=Math.min(x0,e[0]);x1=Math.max(x1,e[0]);y0=Math.min(y0,e[1]);y1=Math.max(y1,e[1])}
+  const pad=26,sc=Math.min((w-2*pad)/(x1-x0||1),(h-2*pad)/(y1-y0||1)),cx=(x0+x1)/2,cy=(y0+y1)/2;
+  const pr=emb.map(e=>[w/2+(e[0]-cx)*sc,h/2+(e[1]-cy)*sc]);pos2=pr;
+  pr.forEach((p,i)=>{x.fillStyle=col(U[i]);x.beginPath();x.arc(p[0],p[1],3.6,0,7);x.fill()});
+  ring(x,pr)}
+
+function ring(x,pr){if(hov<0)return;x.strokeStyle=css('--ink');x.lineWidth=2;x.beginPath();x.arc(pr[hov][0],pr[hov][1],8,0,7);x.stroke()}
+
+function status(){const el=$('status');let sc,msg,cls;
+  if(method==='pca'){sc=pcaScore;cls=sc>.9?'ok':'bad';
+    msg=`Straight-line distances treat the roll as a solid 3D cloud, so PCA just projects it flat and the layers land on top of each other. Order along the sheet recovered: <b>${sc.toFixed(2)}</b> (1.00 is perfect).`}
+  else{sc=iso.score;const s=iso.g.shortcuts;
+    if(iso.g.broken){cls='bad';msg=`With k = ${k}, the neighbor graph splits into separate pieces. Distances between pieces are unknown, so the layout falls apart. Order recovered: <b>${sc.toFixed(2)}</b>. Raise k.`}
+    else if(s>0){cls='bad';msg=`With k = ${k}, <b>${s}</b> links jump across layers (red in the 3D view). These shortcuts make far-apart points look close, so the sheet gets creased. Order recovered: <b>${sc.toFixed(2)}</b>. Lower k.`}
+    else{cls='ok';msg=`Every link stays on the sheet, so hops along links approximate distance along the sheet. The roll unrolls into a flat strip and colors stay in order. Order recovered: <b>${sc.toFixed(2)}</b>.`}}
+  el.className='status '+cls;el.innerHTML=msg}
+
+function compute(){const g=geodesic(k);iso={g,emb:embed(g.D)};iso.score=score(iso.emb)}
+function render(){draw3();draw2();status();$('mPca').setAttribute('aria-pressed',method==='pca');$('mIso').setAttribute('aria-pressed',method==='iso')}
+function recompute(){compute();render()}
+
+$('k').oninput=e=>{k=+e.target.value;$('kv').textContent=k;recompute()};
+$('rot').oninput=()=>draw3();
+$('showG').onchange=()=>draw3();
+$('mPca').onclick=()=>{method='pca';render()};
+$('mIso').onclick=()=>{method='iso';render()};
+document.querySelectorAll('.preset').forEach(b=>b.onclick=()=>{k=+b.dataset.k;method=b.dataset.m;$('k').value=k;$('kv').textContent=k;compute();render()});
+
+function hover(c,getPos){c.onmousemove=e=>{const r=c.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;let best=-1,bd=196;
+  getPos().forEach((p,i)=>{const d=(p[0]-mx)**2+(p[1]-my)**2;if(d<bd){bd=d;best=i}});if(best!==hov){hov=best;draw3();draw2()}};
+  c.onmouseleave=()=>{hov=-1;draw3();draw2()}}
+hover(c3,()=>pos3);hover(c2,()=>pos2);
+addEventListener('resize',render);
+recompute();
+</script>
+</body>
+</html>
